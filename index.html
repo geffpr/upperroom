@@ -737,7 +737,7 @@
 
         <div class="panel-view" id="tab-bible">
           <div class="bible-search">
-            <input type="text" placeholder="Rechercher un verset ou une référence…">
+            <input type="text" id="bibleSearchInput" placeholder="Ex. Jean 3:16, Romains 8:28…">
           </div>
           <div class="verse-list" id="verseList"></div>
         </div>
@@ -1208,13 +1208,13 @@ setInterval(()=>{
   }
 }, 2600);
 
-/* ---------- SCRIPTURE / BIBLE PANEL ---------- */
+/* ---------- SCRIPTURE / BIBLE PANEL (vraie recherche, LSG complète) ---------- */
 const verses = [
   {ref:"Jean 3:16", text:"Car Dieu a tant aimé le monde qu'il a donné son Fils unique, afin que quiconque croit en lui ne périsse point, mais qu'il ait la vie éternelle."},
-  {ref:"Psaume 23:1", text:"L'Éternel est mon berger : je ne manquerai de rien."},
-  {ref:"Romains 8:28", text:"Nous savons, du reste, que toutes choses concourent au bien de ceux qui aiment Dieu."},
+  {ref:"Psaumes 23:1", text:"Cantique de David. L'Éternel est mon berger: je ne manquerai de rien."},
+  {ref:"Romains 8:28", text:"Nous savons, du reste, que toutes choses concourent au bien de ceux qui aiment Dieu, de ceux qui sont appelés selon son dessein."},
   {ref:"Philippiens 4:13", text:"Je puis tout par celui qui me fortifie."},
-  {ref:"Ésaïe 41:10", text:"Ne crains rien, car je suis avec toi ; ne prends pas d'inquiétude, car je suis ton Dieu."}
+  {ref:"Ésaïe 41:10", text:"Ne crains rien, car je suis avec toi; ne prends pas d'inquiétude, car je suis ton Dieu."}
 ];
 
 function renderVerseList(){
@@ -1233,6 +1233,40 @@ function renderVerseList(){
 }
 renderVerseList();
 
+/* Recherche réelle dans la LSG complète via /api/verse */
+async function searchBibleVerse(query){
+  const list = document.getElementById('verseList');
+  list.innerHTML = `<p style="padding:14px; font-size:13px; color:var(--gray);">Recherche…</p>`;
+  try{
+    const res = await fetch('/api/verse?ref=' + encodeURIComponent(query));
+    const data = await res.json();
+    if(!res.ok){
+      list.innerHTML = `<p style="padding:14px; font-size:13px; color:var(--gray);">${data.error || 'Verset introuvable.'}</p>`;
+      return;
+    }
+    const verse = { ref: data.reference, text: data.text };
+    list.innerHTML = `
+      <div class="verse-item">
+        <div class="ref">${verse.ref}</div>
+        <div class="txt">${verse.text}</div>
+        <div class="actions"><button class="btn btn-violet btn-sm" id="showSearchedVerseBtn">Afficher à tous</button></div>
+      </div>`;
+    document.getElementById('showSearchedVerseBtn').addEventListener('click', () => showScripture(verse));
+  }catch(err){
+    list.innerHTML = `<p style="padding:14px; font-size:13px; color:var(--gray);">Erreur de connexion — réessayez.</p>`;
+  }
+}
+
+const bibleSearchInput = document.getElementById('bibleSearchInput');
+bibleSearchInput.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter' && bibleSearchInput.value.trim()){
+    searchBibleVerse(bibleSearchInput.value.trim());
+  }
+});
+bibleSearchInput.addEventListener('blur', () => {
+  if(!bibleSearchInput.value.trim()) renderVerseList();
+});
+
 function showScripture(verse){
   document.getElementById('overlayRef').textContent = verse.ref.toUpperCase();
   const words = verse.text.split(' ');
@@ -1242,7 +1276,10 @@ function showScripture(verse){
   switchTab('chat');
   addSystemMessage('📖 '+verse.ref+' a été partagé par Roosevelt');
 }
-document.getElementById('bibleBtn').addEventListener('click', ()=> showScripture(verses[0]));
+document.getElementById('bibleBtn').addEventListener('click', ()=> {
+  switchTab('bible');
+  bibleSearchInput.focus();
+});
 document.getElementById('scriptureOverlay').addEventListener('click', function(e){
   if(e.target === this){ this.classList.remove('show'); }
 });
