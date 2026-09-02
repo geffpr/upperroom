@@ -666,7 +666,7 @@
           <div class="meta">Pasteur Roosevelt · Traduction FR → HT active · 6 participants</div>
         </div>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="showPage('dashboard')">← Quitter la salle</button>
+      <button class="btn btn-ghost btn-sm" onclick="leaveLiveKitRoom(); showPage('dashboard')">← Quitter la salle</button>
     </div>
 
     <div class="stage">
@@ -674,30 +674,10 @@
         <div class="tile main-teacher" id="localTile">
           <video id="localVideo" autoplay muted playsinline></video>
           <div class="avatar-fallback" id="localFallback" style="background:#6D4AFF; display:none;">R</div>
-          <div class="tag"><span id="localMicIcon">🎙️</span> Vous (Roosevelt) · Enseignant</div>
-        </div>
-        <div class="tile" data-name="Magda" style="background:#0F0F10;">
-          <div class="avatar-fallback" style="background:#EF4444;">M</div>
-          <div class="tag">🎙️ Magda</div>
-        </div>
-        <div class="tile" data-name="Samuel" style="background:#0F0F10;">
-          <div class="avatar-fallback" style="background:#F59E0B;">S</div>
-          <div class="tag mute-flag">🔇 Samuel</div>
-        </div>
-        <div class="tile" data-name="Nadège" style="background:#0F0F10;">
-          <div class="avatar-fallback" style="background:#10B981;">N</div>
-          <div class="tag">🎙️ Nadège</div>
-          <div class="hand-flag" id="nadegeHand" style="display:none;">✋</div>
-        </div>
-        <div class="tile" data-name="Jean-Paul" style="background:#0F0F10;">
-          <div class="avatar-fallback" style="background:#3B82F6;">J</div>
-          <div class="tag mute-flag">🔇 Jean-Paul</div>
-        </div>
-        <div class="tile" data-name="Ruth" style="background:#0F0F10;">
-          <div class="avatar-fallback" style="background:#EC4899;">R</div>
-          <div class="tag">🎙️ Ruth</div>
+          <div class="tag"><span id="localMicIcon">🎙️</span> <span id="localNameTag">Vous</span></div>
         </div>
       </div>
+      <p id="roomStatus" style="text-align:center; font-size:12.5px; color:var(--gray); margin-top:8px;">Connexion à la salle…</p>
 
       <div class="lang-picker">
         <select id="captionLang" title="Langue des sous-titres">
@@ -1012,6 +992,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
 <script>
 /* ---------- NAV / PAGE SWITCH ---------- */
 function showPage(id){
@@ -1048,21 +1029,119 @@ function toast(msg){
   window._toastTimer = setTimeout(()=>t.classList.remove('show'), 2400);
 }
 
-/* ---------- CAMERA / MIC (real getUserMedia) ---------- */
+/* ---------- CAMERA / MIC / SALLE RÉELLE (LiveKit) ---------- */
 let cameraInitialized = false;
-let localStream = null;
 let micOn = true, camOn = true, handRaised = false, presenting = false;
 
+// À remplacer par l'URL wss:// de ton projet LiveKit Cloud (pas un secret, peut rester ici)
+const LIVEKIT_URL = "wss://upper-room-fux387sl.livekit.cloud";
+const DEMO_ROOM_NAME = "upper-room-demo";
+
+let liveKitRoom = null;
+
+function getDisplayName(){
+  if(typeof pendingEmail !== 'undefined' && pendingEmail) return pendingEmail.split('@')[0];
+  let stored = sessionStorage.getItem('upperroom_display_name');
+  if(stored) return stored;
+  const entered = prompt('Votre nom pour rejoindre la salle :', 'Roosevelt');
+  const name = (entered && entered.trim()) || ('Invité ' + Math.floor(Math.random()*1000));
+  sessionStorage.setItem('upperroom_display_name', name);
+  return name;
+}
+
+function createRemoteTile(participant){
+  const grid = document.getElementById('videoGrid');
+  const tile = document.createElement('div');
+  tile.className = 'tile';
+  tile.id = 'tile-' + participant.identity;
+  tile.style.background = '#0F0F10';
+  const initial = (participant.name || participant.identity || '?').charAt(0).toUpperCase();
+  tile.innerHTML = `
+    <video autoplay playsinline style="width:100%; height:100%; object-fit:cover;"></video>
+    <div class="avatar-fallback" style="background:#6D4AFF; display:flex;">${initial}</div>
+    <div class="tag">🎙️ ${participant.name || participant.identity}</div>
+  `;
+  grid.appendChild(tile);
+  return tile;
+}
+
+function removeRemoteTile(participant){
+  const tile = document.getElementById('tile-' + participant.identity);
+  if(tile) tile.remove();
+}
+
 async function initCamera(){
+  if(cameraInitialized) return;
   cameraInitialized = true;
+
+  if(!window.LivekitClient){
+    toast('SDK LiveKit non chargé — vérifiez la connexion internet');
+    return;
+  }
+  if(LIVEKIT_URL.includes('REMPLACE-PAR-TON-PROJET')){
+    document.getElementById('roomStatus').textContent = "LiveKit n'est pas encore configuré (URL manquante).";
+    toast('Configurez LIVEKIT_URL pour activer la vraie visio');
+    return;
+  }
+
+  const displayName = getDisplayName();
+  document.getElementById('localNameTag').textContent = 'Vous (' + displayName + ')';
+
   try{
-    localStream = await navigator.mediaDevices.getUserMedia({video:true, audio:true});
-    document.getElementById('localVideo').srcObject = localStream;
-    toast('Caméra et micro connectés ✅');
+    const identity = displayName.toLowerCase().replace(/[^a-z0-9]/g, '') + '-' + Math.floor(Math.random()*10000);
+    const tokenRes = await fetch(`/api/token?room=${encodeURIComponent(DEMO_ROOM_NAME)}&identity=${encodeURIComponent(identity)}&name=${encodeURIComponent(displayName)}`);
+    const tokenData = await tokenRes.json();
+    if(!tokenRes.ok) throw new Error(tokenData.error || 'Impossible d\'obtenir un jeton d\'accès');
+
+    const { Room, RoomEvent } = window.LivekitClient;
+    liveKitRoom = new Room();
+
+    liveKitRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+      let tile = document.getElementById('tile-' + participant.identity);
+      if(!tile) tile = createRemoteTile(participant);
+      if(track.kind === 'video'){
+        const videoEl = tile.querySelector('video');
+        track.attach(videoEl);
+      } else if(track.kind === 'audio'){
+        track.attach();
+      }
+    });
+
+    liveKitRoom.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      removeRemoteTile(participant);
+    });
+
+    liveKitRoom.on(RoomEvent.Disconnected, () => {
+      document.getElementById('roomStatus').textContent = 'Déconnecté de la salle.';
+    });
+
+    await liveKitRoom.connect(LIVEKIT_URL, tokenData.token);
+    await liveKitRoom.localParticipant.setCameraEnabled(true);
+    await liveKitRoom.localParticipant.setMicrophoneEnabled(true);
+
+    // Attache la vidéo locale à la tuile "Vous"
+    liveKitRoom.localParticipant.videoTrackPublications.forEach(pub => {
+      if(pub.track) pub.track.attach(document.getElementById('localVideo'));
+    });
+
+    document.getElementById('roomStatus').textContent = '';
+    toast('Connecté à la salle en direct ✅');
+
   }catch(err){
+    console.error(err);
     document.getElementById('localVideo').style.display='none';
     document.getElementById('localFallback').style.display='flex';
-    toast('Caméra/micro non autorisés — mode démo sans flux réel');
+    document.getElementById('roomStatus').textContent = 'Caméra/micro non autorisés, ou erreur de connexion.';
+    toast('Impossible de rejoindre la salle en direct');
+  }
+}
+
+function leaveLiveKitRoom(){
+  if(liveKitRoom){
+    liveKitRoom.disconnect();
+    liveKitRoom = null;
+    cameraInitialized = false;
+    document.getElementById('videoGrid').querySelectorAll('.tile:not(#localTile)').forEach(t => t.remove());
   }
 }
 
@@ -1071,7 +1150,7 @@ document.getElementById('micBtn').addEventListener('click', function(){
   this.classList.toggle('off', !micOn);
   this.textContent = micOn ? '🎙️' : '🔇';
   document.getElementById('localMicIcon').textContent = micOn ? '🎙️' : '🔇';
-  if(localStream) localStream.getAudioTracks().forEach(t=> t.enabled = micOn);
+  if(liveKitRoom) liveKitRoom.localParticipant.setMicrophoneEnabled(micOn);
   toast(micOn ? 'Micro activé' : 'Micro coupé');
 });
 
@@ -1081,7 +1160,7 @@ document.getElementById('camBtn').addEventListener('click', function(){
   this.textContent = camOn ? '🎥' : '🚫';
   document.getElementById('localVideo').style.display = camOn ? 'block' : 'none';
   document.getElementById('localFallback').style.display = camOn ? 'none' : 'flex';
-  if(localStream) localStream.getVideoTracks().forEach(t=> t.enabled = camOn);
+  if(liveKitRoom) liveKitRoom.localParticipant.setCameraEnabled(camOn);
   toast(camOn ? 'Caméra activée' : 'Caméra coupée');
 });
 
@@ -1387,10 +1466,12 @@ checkExistingSession();
 function joinAsGuest(){
   const name = document.getElementById('guestName').value.trim();
   if(!name){ toast('Entrez votre nom pour continuer'); return; }
+  sessionStorage.setItem('upperroom_display_name', name);
   showPage('room');
   toast('Bienvenue ' + name + ' — vous avez rejoint en tant qu\'invité');
 }
 function endSession(){
+  leaveLiveKitRoom();
   showPage('recap');
 }
 
