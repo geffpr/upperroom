@@ -559,7 +559,7 @@
         <h1>Bonjour, Roosevelt 👋</h1>
         <p>Église Bethel Paris — 3 études cette semaine</p>
       </div>
-      <button class="btn btn-primary" onclick="showPage('room')">+ Nouvelle étude</button>
+      <button class="btn btn-primary" onclick="showPage('create-session')">+ Nouvelle étude</button>
     </div>
     <div class="dash-grid">
       <div class="card">
@@ -615,6 +615,42 @@
           <p>"Car Dieu a tant aimé le monde qu'il a donné son Fils unique."</p>
         </div>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CRÉER UNE ÉTUDE ============ -->
+<section class="page" id="page-create-session">
+  <div class="auth-wrap" style="max-width:460px;">
+    <div class="auth-card">
+      <h1>Nouvelle étude</h1>
+      <p class="sub">Planifiez une session ou lancez-la immédiatement.</p>
+
+      <div class="field">
+        <label>Titre de l'étude</label>
+        <input type="text" id="newSessionTitle" placeholder="Ex. Jean 4 — La femme au puits">
+      </div>
+
+      <div class="field">
+        <label>Type de session</label>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="filter-row-btn-toggle active" id="typeInstantBtn" style="flex:1; padding:10px; border-radius:var(--radius-sm); border:1px solid var(--gray-line); background:var(--ink); color:#fff; font-size:13.5px; font-weight:500;" onclick="setSessionType('instant')">Instantanée</button>
+          <button type="button" class="filter-row-btn-toggle" id="typeScheduledBtn" style="flex:1; padding:10px; border-radius:var(--radius-sm); border:1px solid var(--gray-line); background:var(--card); color:var(--ink); font-size:13.5px; font-weight:500;" onclick="setSessionType('scheduled')">Planifiée</button>
+        </div>
+      </div>
+
+      <div class="field" id="fieldScheduledAt" style="display:none;">
+        <label>Date et heure</label>
+        <input type="datetime-local" id="newSessionDate">
+      </div>
+
+      <div class="field">
+        <label>Code d'accès <span style="color:var(--gray); font-weight:400;">(optionnel — session privée)</span></label>
+        <input type="text" id="newSessionCode" placeholder="Ex. 4821">
+      </div>
+
+      <button class="btn btn-primary" id="createSessionBtn" style="width:100%; justify-content:center;" onclick="createSession()">Lancer maintenant</button>
+      <button class="btn btn-ghost" style="width:100%; justify-content:center; margin-top:8px;" onclick="showPage('dashboard')">Annuler</button>
     </div>
   </div>
 </section>
@@ -1293,6 +1329,48 @@ function traduireErreurAuth(message){
 function skipAuthDev(){
   toast('Mode dev — connexion ignorée');
   showPage('dashboard');
+}
+
+/* ---------- CRÉER UNE ÉTUDE ---------- */
+let newSessionType = 'instant';
+
+function setSessionType(type){
+  newSessionType = type;
+  const instantBtn = document.getElementById('typeInstantBtn');
+  const scheduledBtn = document.getElementById('typeScheduledBtn');
+  const isInstant = type === 'instant';
+  instantBtn.style.background = isInstant ? 'var(--ink)' : 'var(--card)';
+  instantBtn.style.color = isInstant ? '#fff' : 'var(--ink)';
+  scheduledBtn.style.background = !isInstant ? 'var(--ink)' : 'var(--card)';
+  scheduledBtn.style.color = !isInstant ? '#fff' : 'var(--ink)';
+  document.getElementById('fieldScheduledAt').style.display = isInstant ? 'none' : 'block';
+  document.getElementById('createSessionBtn').textContent = isInstant ? 'Lancer maintenant' : 'Planifier cette étude';
+}
+
+function createSession(){
+  const title = document.getElementById('newSessionTitle').value.trim();
+  if(!title){
+    toast('Donnez un titre à votre étude');
+    return;
+  }
+
+  if(newSessionType === 'instant'){
+    // Pas encore branché à Supabase — on ouvre directement la salle live pour démo
+    toast('Session "' + title + '" lancée');
+    showPage('room');
+  } else {
+    const date = document.getElementById('newSessionDate').value;
+    if(!date){
+      toast('Choisissez une date et une heure');
+      return;
+    }
+    // Pas encore branché à Supabase — confirmation seulement pour l'instant
+    toast('Étude "' + title + '" planifiée — elle apparaîtra bientôt dans votre liste');
+    document.getElementById('newSessionTitle').value = '';
+    document.getElementById('newSessionDate').value = '';
+    document.getElementById('newSessionCode').value = '';
+    showPage('dashboard');
+  }
 }
 
 async function checkExistingSession(){
