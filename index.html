@@ -681,6 +681,7 @@
         </div>
       </div>
       <p id="roomStatus" style="text-align:center; font-size:12.5px; color:var(--gray); margin-top:8px;">Connexion à la salle…</p>
+      <p id="transcriptionStatus" style="text-align:center; font-size:12px; color:var(--gray); margin-top:2px;"></p>
 
       <div class="lang-picker">
         <select id="captionLang" title="Langue des sous-titres">
@@ -953,31 +954,24 @@
     <div class="page-inner-head">
       <div>
         <h1>Récap de session</h1>
-        <p>Jean 3 — La nouvelle naissance · Envoyé automatiquement à 6 participants</p>
+        <p id="recapSubtitle">Génération du récap en cours…</p>
       </div>
       <button class="btn btn-ghost btn-sm" onclick="showPage('dashboard')">← Retour au dashboard</button>
     </div>
 
     <div class="recap-block">
       <h3>Résumé</h3>
-      <p>L'enseignant a expliqué que la nouvelle naissance est une œuvre spirituelle initiée par Dieu, à distinguer d'un effort ou d'une réforme personnelle. La session a fait le lien entre l'amour de Dieu et le don de son Fils, en s'appuyant sur Jean 3.</p>
+      <p id="recapSummary">Un instant, l'IA analyse la session…</p>
     </div>
 
-    <div class="recap-block">
-      <h3>Versets partagés</h3>
-      <div class="recap-verse">
-        <div class="ref">Jean 3:16</div>
-        "Car Dieu a tant aimé le monde qu'il a donné son Fils unique, afin que quiconque croit en lui ne périsse point, mais qu'il ait la vie éternelle."
-      </div>
-      <div class="recap-verse">
-        <div class="ref">Romains 8:28</div>
-        "Nous savons, du reste, que toutes choses concourent au bien de ceux qui aiment Dieu."
-      </div>
+    <div class="recap-block" id="recapKeyPointsBlock" style="display:none;">
+      <h3>Points clés</h3>
+      <ul id="recapKeyPointsList" style="padding-left:18px; font-size:14px; line-height:1.7;"></ul>
     </div>
 
-    <div class="recap-block">
-      <h3>Présence &amp; engagement</h3>
-      <p>6 participants · 3 questions posées dans le chat · 1 main levée · Transcription complète disponible dans la bibliothèque.</p>
+    <div class="recap-block" id="recapVersesBlock" style="display:none;">
+      <h3>Versets mentionnés</h3>
+      <div id="recapVersesList"></div>
     </div>
 
     <button class="btn btn-primary" onclick="showPage('dashboard')">Retour au dashboard</button>
@@ -1065,6 +1059,193 @@ function removeRemoteTile(participant){
   if(tile) tile.remove();
 }
 
+/* ---------- TRANSCRIPTION AUTOMATIQUE & DÉTECTION DE VERSETS ---------- */
+let sessionTranscript = '';
+let speechRecognizer = null;
+let transcriptionShouldBeActive = false;
+let restartAttempts = 0;
+const lastShownVerses = {}; // référence -> timestamp, pour éviter les répétitions rapprochées
+
+const FR_UNITS = {
+  'zero':0,'un':1,'une':1,'deux':2,'trois':3,'quatre':4,'cinq':5,'six':6,'sept':7,'huit':8,'neuf':9,
+  'dix':10,'onze':11,'douze':12,'treize':13,'quatorze':14,'quinze':15,'seize':16,
+  'dix-sept':17,'dix-huit':18,'dix-neuf':19
+};
+const FR_TENS = {
+  'vingt':20,'trente':30,'quarante':40,'cinquante':50,'soixante':60,
+  'soixante-dix':70,'quatre-vingt':80,'quatre-vingts':80,'quatre-vingt-dix':90
+};
+function wordToNumber(word){
+  const w = word.toLowerCase();
+  if(FR_UNITS[w] !== undefined) return FR_UNITS[w];
+  if(FR_TENS[w] !== undefined) return FR_TENS[w];
+  if(w.includes('-')){
+    const parts = w.split('-');
+    for(let splitAt = parts.length - 1; splitAt >= 1; splitAt--){
+      const prefix = parts.slice(0, splitAt).join('-');
+      const suffix = parts.slice(splitAt).join('-');
+      const prefixVal = FR_TENS[prefix] !== undefined ? FR_TENS[prefix] : FR_UNITS[prefix];
+      const suffixVal = FR_UNITS[suffix];
+      if(prefixVal !== undefined && prefixVal >= 20 && suffixVal !== undefined && suffixVal < 10){
+        return prefixVal + suffixVal;
+      }
+    }
+  }
+  return null;
+}
+function normalizeSpokenNumbers(text){
+  const words = text.split(/\s+/);
+  const out = [];
+  let i = 0;
+  while(i < words.length){
+    const cleanWord = words[i].replace(/[.,!?]/g,'');
+    const val = wordToNumber(cleanWord);
+    if(val !== null){
+      let total = val, consumed = 1;
+      if(val >= 20 && val % 10 === 0 && i+1 < words.length){
+        const nextVal = wordToNumber(words[i+1].replace(/[.,!?]/g,''));
+        if(nextVal !== null && nextVal < 10){ total = val + nextVal; consumed = 2; }
+      }
+      out.push(String(total));
+      i += consumed;
+    } else {
+      out.push(words[i]);
+      i += 1;
+    }
+  }
+  return out.join(' ');
+}
+
+const BIBLE_BOOK_NAMES = [
+  'Genèse','Exode','Lévitique','Nombres','Deutéronome','Josué','Juges','Ruth','1 Samuel','2 Samuel',
+  '1 Rois','2 Rois','1 Chroniques','2 Chroniques','Esdras','Néhémie','Esther','Job','Psaumes','Proverbes',
+  'Ecclésiaste','Cantique des Cantiques','Ésaïe','Jérémie','Lamentations de Jérémie','Ézéchiel','Daniel',
+  'Osée','Joël','Amos','Abdias','Jonas','Michée','Nahum','Habacuc','Sophonie','Aggée','Zacharie','Malachie',
+  'Matthieu','Marc','Luc','Jean','Actes des Apôtres','Actes','Romains','1 Corinthiens','2 Corinthiens',
+  'Galates','Éphésiens','Philippiens','Colossiens','1 Thessaloniciens','2 Thessaloniciens','1 Timothée',
+  '2 Timothée','Tite','Philémon','Hébreux','Jacques','1 Pierre','2 Pierre','1 Jean','2 Jean','3 Jean',
+  'Jude','Apocalypse'
+];
+const sortedBookNames = [...BIBLE_BOOK_NAMES].sort((a,b) => b.length - a.length);
+const escapedBookNames = sortedBookNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+const VERSE_REGEX_SOURCE = `\\b(${escapedBookNames.join('|')})\\s+(?:chapitre\\s+)?(\\d{1,3})\\s*(?:verset|[:,])\\s*(\\d{1,3})\\b`;
+
+function detectVersesInText(rawText){
+  const text = normalizeSpokenNumbers(rawText);
+  const matches = [];
+  const re = new RegExp(VERSE_REGEX_SOURCE, 'gi');
+  let m;
+  while((m = re.exec(text)) !== null){
+    matches.push({ book: m[1], chapter: parseInt(m[2],10), verse: parseInt(m[3],10), reference: `${m[1]} ${m[2]}:${m[3]}` });
+  }
+  return matches;
+}
+
+function setTranscriptionStatus(text){
+  const el = document.getElementById('transcriptionStatus');
+  if(el) el.textContent = text;
+}
+
+async function handleDetectedVerse(match){
+  const now = Date.now();
+  if(lastShownVerses[match.reference] && (now - lastShownVerses[match.reference]) < 30000) return; // évite les répétitions rapprochées
+  lastShownVerses[match.reference] = now;
+
+  try{
+    const res = await fetch('/api/verse?ref=' + encodeURIComponent(match.reference));
+    const data = await res.json();
+    if(res.ok){
+      showScripture({ ref: data.reference, text: data.text });
+    }
+  }catch(e){
+    console.error('Erreur récupération verset détecté:', e);
+  }
+}
+
+function startTranscription(){
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SpeechRecognition){
+    setTranscriptionStatus('Transcription non disponible sur ce navigateur (essayez Chrome ou Edge)');
+    return;
+  }
+
+  transcriptionShouldBeActive = true;
+  restartAttempts = 0;
+  sessionTranscript = '';
+
+  speechRecognizer = new SpeechRecognition();
+  speechRecognizer.lang = 'fr-FR';
+  speechRecognizer.continuous = true;
+  speechRecognizer.interimResults = false;
+
+  speechRecognizer.onresult = (event) => {
+    for(let i = event.resultIndex; i < event.results.length; i++){
+      if(event.results[i].isFinal){
+        const chunk = event.results[i][0].transcript.trim();
+        if(chunk){
+          sessionTranscript += ' ' + chunk;
+          detectVersesInText(chunk).forEach(handleDetectedVerse);
+        }
+      }
+    }
+  };
+
+  speechRecognizer.onerror = (event) => {
+    console.warn('Erreur reconnaissance vocale:', event.error);
+    if(event.error === 'not-allowed' || event.error === 'service-not-allowed'){
+      transcriptionShouldBeActive = false;
+      setTranscriptionStatus('Permission de reconnaissance vocale refusée.');
+    }
+  };
+
+  speechRecognizer.onend = () => {
+    if(!transcriptionShouldBeActive) return;
+    restartAttempts++;
+    if(restartAttempts > 8){
+      setTranscriptionStatus('Transcription interrompue (trop de coupures) — le partage manuel de versets reste disponible.');
+      return;
+    }
+    setTranscriptionStatus('🎙️ Transcription active');
+    try{ speechRecognizer.start(); }catch(e){ /* déjà démarré, on ignore */ }
+  };
+
+  try{
+    speechRecognizer.start();
+    setTranscriptionStatus('🎙️ Transcription active');
+  }catch(e){
+    setTranscriptionStatus("Impossible de démarrer la transcription.");
+  }
+}
+
+function stopTranscription(){
+  transcriptionShouldBeActive = false;
+  if(speechRecognizer){
+    try{ speechRecognizer.stop(); }catch(e){}
+    speechRecognizer = null;
+  }
+  setTranscriptionStatus('');
+}
+
+async function generateRecap(){
+  const transcript = sessionTranscript.trim();
+  if(!transcript){
+    return { summary: "Aucune parole n'a été transcrite pendant cette session.", key_points: [], verses_mentioned: [] };
+  }
+  try{
+    const res = await fetch('/api/summarize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcript })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || 'Erreur de génération du récap');
+    return data;
+  }catch(e){
+    console.error('Erreur génération récap:', e);
+    return { summary: "Le récap n'a pas pu être généré (" + e.message + ").", key_points: [], verses_mentioned: [] };
+  }
+}
+
 async function initCamera(){
   if(cameraInitialized) return;
   cameraInitialized = true;
@@ -1125,6 +1306,7 @@ async function initCamera(){
     document.getElementById('roomStatus').textContent = '';
     upsertPerson('local-' + identity, displayName + ' (vous)', 'Enseignant');
     toast('Connecté à la salle en direct ✅');
+    startTranscription();
 
   }catch(err){
     console.error(err);
@@ -1136,6 +1318,7 @@ async function initCamera(){
 }
 
 function leaveLiveKitRoom(){
+  stopTranscription();
   if(liveKitRoom){
     liveKitRoom.disconnect();
     liveKitRoom = null;
@@ -1572,9 +1755,33 @@ function copyShareLink(){
   }
 })();
 
-function endSession(){
+async function endSession(){
+  const transcriptSnapshot = sessionTranscript;
   leaveLiveKitRoom();
   showPage('recap');
+
+  document.getElementById('recapSubtitle').textContent = 'Génération du récap en cours…';
+  document.getElementById('recapSummary').textContent = "Un instant, l'IA analyse la session…";
+  document.getElementById('recapKeyPointsBlock').style.display = 'none';
+  document.getElementById('recapVersesBlock').style.display = 'none';
+
+  sessionTranscript = transcriptSnapshot; // restauré après le reset fait par leaveLiveKitRoom
+  const recap = await generateRecap();
+
+  document.getElementById('recapSubtitle').textContent = 'Généré automatiquement à la fin de la session';
+  document.getElementById('recapSummary').textContent = recap.summary || 'Aucun résumé disponible.';
+
+  if(recap.key_points && recap.key_points.length){
+    document.getElementById('recapKeyPointsBlock').style.display = 'block';
+    document.getElementById('recapKeyPointsList').innerHTML = recap.key_points.map(p => `<li>${p}</li>`).join('');
+  }
+
+  if(recap.verses_mentioned && recap.verses_mentioned.length){
+    document.getElementById('recapVersesBlock').style.display = 'block';
+    document.getElementById('recapVersesList').innerHTML = recap.verses_mentioned.map(v =>
+      `<div class="recap-verse"><div class="ref">${v}</div></div>`
+    ).join('');
+  }
 }
 
 /* ---------- LIVE TRANSLATED CAPTIONS (simulated) ---------- */
