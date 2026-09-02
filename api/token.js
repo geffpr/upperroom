@@ -1,14 +1,22 @@
+function sendJson(res, statusCode, body) {
+  res.statusCode = statusCode;
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.end(JSON.stringify(body));
+}
+
 module.exports = async (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     const { AccessToken } = require('livekit-server-sdk');
 
-    const room = (req.query.room || '').toString().trim();
-    const identity = (req.query.identity || '').toString().trim();
-    const name = (req.query.name || identity).toString().trim();
+    // req.query peut ne pas être fourni selon la configuration — on le reconstruit nous-mêmes pour être sûr
+    const url = new URL(req.url, 'http://localhost');
+    const room = (url.searchParams.get('room') || '').trim();
+    const identity = (url.searchParams.get('identity') || '').trim();
+    const name = (url.searchParams.get('name') || identity).trim();
 
     if (!room || !identity) {
-      res.status(400).json({ error: 'Paramètres "room" et "identity" requis.' });
+      sendJson(res, 400, { error: 'Paramètres "room" et "identity" requis.' });
       return;
     }
 
@@ -16,7 +24,7 @@ module.exports = async (req, res) => {
     const apiSecret = process.env.LIVEKIT_API_SECRET;
 
     if (!apiKey || !apiSecret) {
-      res.status(500).json({ error: 'LIVEKIT_API_KEY / LIVEKIT_API_SECRET non configurées sur Vercel.' });
+      sendJson(res, 500, { error: 'LIVEKIT_API_KEY / LIVEKIT_API_SECRET non configurées sur Vercel.' });
       return;
     }
 
@@ -30,10 +38,14 @@ module.exports = async (req, res) => {
     });
 
     const token = await at.toJwt();
-    res.status(200).json({ token });
+    sendJson(res, 200, { token });
 
   } catch (err) {
-    console.error('Erreur génération token LiveKit:', err);
-    res.status(500).json({ error: 'Erreur serveur: ' + (err && err.message ? err.message : String(err)) });
+    console.error('Erreur génération token LiveKit:', err && err.stack ? err.stack : err);
+    try {
+      sendJson(res, 500, { error: 'Erreur serveur: ' + (err && err.message ? err.message : String(err)) });
+    } catch (sendErr) {
+      console.error('Impossible même d\'envoyer la réponse d\'erreur:', sendErr);
+    }
   }
 };
