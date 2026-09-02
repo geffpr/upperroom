@@ -418,24 +418,36 @@
   </div>
 </nav>
 
-<!-- ============ LOGIN ============ -->
+<!-- ============ LOGIN / SIGNUP ============ -->
 <section class="page" id="page-login">
   <div class="auth-wrap">
     <div class="auth-card">
-      <h1>Se connecter</h1>
-      <p class="sub">Accédez au tableau de bord de votre église.</p>
+      <h1 id="authTitle">Se connecter</h1>
+      <p class="sub" id="authSub">Accédez au tableau de bord de votre église.</p>
+
+      <div id="authError" style="display:none; background:#FBEFE0; color:#8A5A1B; font-size:13px; padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:14px;"></div>
+
+      <div class="field" id="fieldFullName" style="display:none;">
+        <label>Votre nom</label>
+        <input type="text" id="authFullName" placeholder="Ex. Roosevelt Geffrard">
+      </div>
+      <div class="field" id="fieldChurchName" style="display:none;">
+        <label>Nom de l'église</label>
+        <input type="text" id="authChurchName" placeholder="Ex. Église Bethel Paris">
+      </div>
       <div class="field">
         <label>Adresse e-mail</label>
-        <input type="email" placeholder="vous@eglise.org">
+        <input type="email" id="authEmail" placeholder="vous@eglise.org">
       </div>
       <div class="field">
         <label>Mot de passe</label>
-        <input type="password" placeholder="••••••••">
+        <input type="password" id="authPassword" placeholder="••••••••">
       </div>
-      <button class="btn btn-primary" style="width:100%; justify-content:center;" onclick="showPage('dashboard')">Se connecter</button>
+
+      <button class="btn btn-primary" id="authSubmitBtn" style="width:100%; justify-content:center;" onclick="handleAuthSubmit()">Se connecter</button>
       <div class="auth-divider">ou</div>
       <button class="btn btn-ghost" style="width:100%; justify-content:center;" onclick="showPage('join')">Rejoindre une session avec un lien</button>
-      <div class="auth-foot">Pas encore de compte église ? <a href="#" style="color:var(--violet-deep); font-weight:500;">Créer une église</a></div>
+      <div class="auth-foot" id="authToggleWrap">Pas encore de compte église ? <a href="#" style="color:var(--violet-deep); font-weight:500;" onclick="toggleAuthMode(); return false;">Créer une église</a></div>
     </div>
   </div>
 </section>
@@ -956,6 +968,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 /* ---------- NAV / PAGE SWITCH ---------- */
 function showPage(id){
@@ -1164,6 +1177,116 @@ function sendChat(){
   input.value = '';
 }
 document.getElementById('chatInput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
+
+/* ================= SUPABASE CONFIG & AUTH ================= */
+const SUPABASE_URL = "https://rfnprxjinukeowotlqxv.supabase.co";
+const SUPABASE_KEY = "sb_publishable_ScBbuN57vvE4lmtQp8UVuw_TDk0iv99";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let authMode = 'login'; // 'login' | 'signup'
+
+function toggleAuthMode(){
+  authMode = authMode === 'login' ? 'signup' : 'login';
+  const isSignup = authMode === 'signup';
+  document.getElementById('authTitle').textContent = isSignup ? 'Créer une église' : 'Se connecter';
+  document.getElementById('authSub').textContent = isSignup
+    ? 'Créez le compte principal de votre église sur Upper Room.'
+    : 'Accédez au tableau de bord de votre église.';
+  document.getElementById('fieldFullName').style.display = isSignup ? 'block' : 'none';
+  document.getElementById('fieldChurchName').style.display = isSignup ? 'block' : 'none';
+  document.getElementById('authSubmitBtn').textContent = isSignup ? 'Créer mon église' : 'Se connecter';
+  document.getElementById('authToggleWrap').innerHTML = isSignup
+    ? 'Déjà un compte ? <a href="#" style="color:var(--violet-deep); font-weight:500;" onclick="toggleAuthMode(); return false;">Se connecter</a>'
+    : 'Pas encore de compte église ? <a href="#" style="color:var(--violet-deep); font-weight:500;" onclick="toggleAuthMode(); return false;">Créer une église</a>';
+  hideAuthError();
+}
+
+function showAuthError(msg){
+  const el = document.getElementById('authError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideAuthError(){
+  document.getElementById('authError').style.display = 'none';
+}
+
+async function handleAuthSubmit(){
+  hideAuthError();
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+
+  if(!email || !password){
+    showAuthError('Entrez un e-mail et un mot de passe.');
+    return;
+  }
+
+  const btn = document.getElementById('authSubmitBtn');
+  const originalLabel = btn.textContent;
+  btn.textContent = 'Un instant…';
+  btn.disabled = true;
+
+  try{
+    if(authMode === 'signup'){
+      const fullName = document.getElementById('authFullName').value.trim();
+      const churchName = document.getElementById('authChurchName').value.trim();
+      if(!fullName || !churchName){
+        showAuthError('Entrez votre nom et le nom de votre église.');
+        return;
+      }
+
+      const { data, error } = await supabaseClient.auth.signUp({
+        email, password,
+        options: { data: { full_name: fullName } }
+      });
+      if(error) throw error;
+
+      if(data.user){
+        const { data: church, error: churchError } = await supabaseClient
+          .from('churches')
+          .insert({ name: churchName })
+          .select()
+          .single();
+        if(churchError) throw churchError;
+
+        const { error: userUpdateError } = await supabaseClient
+          .from('users')
+          .update({ church_id: church.id, global_role: 'owner' })
+          .eq('id', data.user.id);
+        if(userUpdateError) throw userUpdateError;
+      }
+
+      toast('Compte créé — bienvenue sur Upper Room, ' + fullName);
+      showPage('dashboard');
+
+    } else {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if(error) throw error;
+      toast('Connexion réussie');
+      showPage('dashboard');
+    }
+  } catch(err){
+    showAuthError(traduireErreurAuth(err.message));
+  } finally {
+    btn.textContent = originalLabel;
+    btn.disabled = false;
+  }
+}
+
+function traduireErreurAuth(message){
+  if(!message) return "Une erreur est survenue. Réessayez.";
+  if(message.includes('Invalid login credentials')) return "E-mail ou mot de passe incorrect.";
+  if(message.includes('already registered')) return "Un compte existe déjà avec cet e-mail.";
+  if(message.includes('Password should be')) return "Le mot de passe doit contenir au moins 6 caractères.";
+  return message;
+}
+
+async function checkExistingSession(){
+  const { data } = await supabaseClient.auth.getSession();
+  if(data.session){
+    console.log('Session active pour', data.session.user.email);
+  }
+}
+checkExistingSession();
 
 /* ---------- GUEST JOIN / END SESSION ---------- */
 function joinAsGuest(){
