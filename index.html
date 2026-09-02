@@ -488,7 +488,7 @@
     <h1>Your church.<br>One <span class="accent">place.</span></h1>
     <p class="sub">Études bibliques en direct, traduction multilingue, bibliothèque et communauté — sur une plateforme qui vous appartient, pas un lien Zoom perdu dans un email.</p>
     <div class="hero-ctas">
-      <button class="btn btn-primary" onclick="showPage('dashboard')">Commencer gratuitement →</button>
+      <button class="btn btn-primary" onclick="goToSignup()">Commencer gratuitement →</button>
       <button class="btn btn-ghost" onclick="showPage('room')">Voir une salle en direct</button>
     </div>
   </div>
@@ -545,7 +545,7 @@
   <div class="cta-band">
     <h2>Votre église mérite mieux qu'un lien Zoom.</h2>
     <p>Gratuit pour démarrer. Aucune carte bancaire requise.</p>
-    <button class="btn btn-secondary" onclick="showPage('dashboard')">Créer mon église →</button>
+    <button class="btn btn-secondary" onclick="goToSignup()">Créer mon église →</button>
   </div>
 
   <footer>© 2026 Upper Room — visioconférence pour les églises.</footer>
@@ -662,7 +662,7 @@
       <div class="room-title">
         <div class="live-pill"><span class="live-dot" style="background:#B91C1C"></span> EN DIRECT</div>
         <div>
-          <div class="t">Jean 3 — La nouvelle naissance</div>
+          <div class="t" id="roomTitleTag">Jean 3 — La nouvelle naissance</div>
           <div class="meta">Pasteur Roosevelt · Traduction FR → HT active · 6 participants</div>
         </div>
       </div>
@@ -785,7 +785,7 @@
           <li><span class="ck">✓</span> Calendrier &amp; chat</li>
           <li><span class="ck">✓</span> Visioconférence limitée</li>
         </ul>
-        <button class="btn btn-ghost" onclick="showPage('dashboard')">Commencer</button>
+        <button class="btn btn-ghost" onclick="goToSignup()">Commencer</button>
       </div>
       <div class="plan featured">
         <div class="badge">Le plus choisi</div>
@@ -799,7 +799,7 @@
           <li><span class="ck">✓</span> Replays &amp; bibliothèque</li>
           <li><span class="ck">✓</span> Traduction live (2 langues)</li>
         </ul>
-        <button class="btn btn-primary" onclick="showPage('dashboard')">Choisir Church</button>
+        <button class="btn btn-primary" onclick="goToSignup()">Choisir Church</button>
       </div>
       <div class="plan">
         <div class="plan-name">Church Pro</div>
@@ -812,7 +812,7 @@
           <li><span class="ck">✓</span> Recap IA automatique</li>
           <li><span class="ck">✓</span> Statistiques avancées</li>
         </ul>
-        <button class="btn btn-ghost" onclick="showPage('dashboard')">Choisir Pro</button>
+        <button class="btn btn-ghost" onclick="goToSignup()">Choisir Pro</button>
       </div>
       <div class="plan">
         <div class="plan-name">Network</div>
@@ -1089,7 +1089,8 @@ async function initCamera(){
 
   try{
     const identity = displayName.toLowerCase().replace(/[^a-z0-9]/g, '') + '-' + Math.floor(Math.random()*10000);
-    const tokenRes = await fetch(`/api/token?room=${encodeURIComponent(DEMO_ROOM_NAME)}&identity=${encodeURIComponent(identity)}&name=${encodeURIComponent(displayName)}`);
+    const roomName = sessionStorage.getItem('upperroom_room_name') || DEMO_ROOM_NAME;
+    const tokenRes = await fetch(`/api/token?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent(identity)}&name=${encodeURIComponent(displayName)}`);
     const tokenData = await tokenRes.json();
     if(!tokenRes.ok) throw new Error(tokenData.error || 'Impossible d\'obtenir un jeton d\'accès');
 
@@ -1410,6 +1411,11 @@ function skipAuthDev(){
   showPage('dashboard');
 }
 
+function goToSignup(){
+  showPage('login');
+  if(authMode !== 'signup') toggleAuthMode();
+}
+
 /* ---------- CRÉER UNE ÉTUDE ---------- */
 let newSessionType = 'instant';
 
@@ -1426,6 +1432,13 @@ function setSessionType(type){
   document.getElementById('createSessionBtn').textContent = isInstant ? 'Lancer maintenant' : 'Planifier cette étude';
 }
 
+function slugifyRoomName(title){
+  return title.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // enlève les accents
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '') || 'etude';
+}
+
 function createSession(){
   const title = document.getElementById('newSessionTitle').value.trim();
   if(!title){
@@ -1434,6 +1447,8 @@ function createSession(){
   }
 
   if(newSessionType === 'instant'){
+    document.getElementById('roomTitleTag').textContent = title;
+    sessionStorage.setItem('upperroom_room_name', slugifyRoomName(title));
     // Pas encore branché à Supabase — on ouvre directement la salle live pour démo
     toast('Session "' + title + '" lancée');
     showPage('room');
