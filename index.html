@@ -1294,6 +1294,15 @@ async function initCamera(){
       document.getElementById('roomStatus').textContent = 'Déconnecté de la salle.';
     });
 
+    liveKitRoom.on(RoomEvent.DataReceived, (payload, participant) => {
+      try{
+        const msg = JSON.parse(new TextDecoder().decode(payload));
+        if(msg.type === 'chat'){
+          renderChatMessage(msg.name || (participant && participant.name) || 'Participant', msg.text, false);
+        }
+      }catch(e){ /* message non reconnu, ignoré */ }
+    });
+
     await liveKitRoom.connect(LIVEKIT_URL, tokenData.token);
     await liveKitRoom.localParticipant.setCameraEnabled(true);
     await liveKitRoom.localParticipant.setMicrophoneEnabled(true);
@@ -1349,23 +1358,39 @@ document.getElementById('camBtn').addEventListener('click', function(){
 });
 
 document.getElementById('shareBtn').addEventListener('click', async function(){
+  if(!liveKitRoom){ toast('Rejoignez d\'abord la salle avant de partager votre écran'); return; }
+  const btn = this;
   if(!presenting){
     try{
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({video:true});
-      document.getElementById('localVideo').srcObject = screenStream;
+      const publication = await liveKitRoom.localParticipant.setScreenShareEnabled(true);
       presenting = true;
-      this.classList.add('on-accent');
-      toast('Vous présentez votre écran');
-      screenStream.getVideoTracks()[0].addEventListener('ended', stopShare);
-    }catch(err){ toast('Partage d\'écran annulé'); }
+      btn.classList.add('on-accent');
+      toast('Partage d\'écran actif — visible par tous les participants');
+      if(publication && publication.track){
+        publication.track.attach(document.getElementById('localVideo'));
+        // Se déclenche si l'utilisateur clique "Arrêter le partage" depuis le navigateur lui-même
+        publication.track.mediaStreamTrack.addEventListener('ended', stopShare);
+      }
+    }catch(err){
+      toast('Partage d\'écran annulé ou refusé');
+    }
   } else {
     stopShare();
   }
 });
-function stopShare(){
+
+async function stopShare(){
+  if(liveKitRoom){
+    await liveKitRoom.localParticipant.setScreenShareEnabled(false);
+    // Remet la caméra dans la tuile locale
+    liveKitRoom.localParticipant.videoTrackPublications.forEach(pub => {
+      if(pub.source === 'camera' && pub.track){
+        pub.track.attach(document.getElementById('localVideo'));
+      }
+    });
+  }
   presenting = false;
   document.getElementById('shareBtn').classList.remove('on-accent');
-  if(localStream) document.getElementById('localVideo').srcObject = localStream;
   toast('Partage d\'écran arrêté');
 }
 
@@ -1513,7 +1538,7 @@ function removePerson(identity){
 
 renderPeople();
 
-/* ---------- CHAT ---------- */
+/* ---------- CHAT (vraiment partagé, via le canal de données LiveKit) ---------- */
 function addSystemMessage(text){
   const wrap = document.getElementById('chatMessages');
   const div = document.createElement('div');
@@ -1522,16 +1547,31 @@ function addSystemMessage(text){
   wrap.appendChild(div);
   wrap.scrollTop = wrap.scrollHeight;
 }
+
+function renderChatMessage(who, text, isMe){
+  const wrap = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg' + (isMe ? ' me' : '');
+  div.innerHTML = `<div class="who">${who}</div><div class="bubble">${text.replace(/</g,'&lt;')}</div>`;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
 function sendChat(){
   const input = document.getElementById('chatInput');
   const val = input.value.trim();
   if(!val) return;
-  const wrap = document.getElementById('chatMessages');
-  const div = document.createElement('div');
-  div.className = 'msg me';
-  div.innerHTML = `<div class="who">Vous</div><div class="bubble">${val.replace(/</g,'&lt;')}</div>`;
-  wrap.appendChild(div);
-  wrap.scrollTop = wrap.scrollHeight;
+
+  const myName = getDisplayName();
+  renderChatMessage(myName, val, true);
+
+  if(liveKitRoom){
+    const payload = new TextEncoder().encode(JSON.stringify({ type: 'chat', name: myName, text: val }));
+    liveKitRoom.localParticipant.publishData(payload, { reliable: true }).catch(e => console.error('Erreur envoi chat:', e));
+  } else {
+    toast('Non connecté à la salle — message visible par vous seul');
+  }
+
   input.value = '';
 }
 document.getElementById('chatInput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
