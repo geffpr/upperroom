@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Upper Room — visioconférence pour les églises.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F4EF;
+    --ink:#20201D;
+    --violet:#6D4AFF;
+    --violet-deep:#5334E0;
+    --violet-tint:#EFEBFF;
+    --sand:#E7E2D3;
+    --sand-deep:#C9C1A4;
+    --card:#FFFFFF;
+    --gray:#6B6A62;
+    --gray-line:#E1DDD1;
+    --radius-lg:14px;
+    --radius-md:10px;
+    --radius-sm:8px;
+    --shadow:none;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  h1,h2,h3,.display{font-family:'Inter',sans-serif; font-weight:600;}
+  .voice{font-family:'Source Serif 4',serif;}
+  a{color:inherit; text-decoration:none;}
+  button{font-family:inherit; cursor:pointer; border:none;}
+  ::selection{background:var(--sand-deep); color:var(--ink);}
+
+  /* focus visibility */
+  a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible{
+    outline:2px solid var(--violet); outline-offset:2px;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.001ms !important; transition-duration:0.001ms !important;}
+  }
+
+  /* ---------- NAV ---------- */
+  .topnav{
+    position:sticky; top:0; z-index:100;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 32px;
+    background:rgba(250,250,248,0.85);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--gray-line);
+  }
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:20px; letter-spacing:-0.02em;}
+  .brand .dot{width:10px; height:10px; border-radius:50%; background:var(--violet); box-shadow:0 0 0 4px var(--violet-tint);}
+  .navlinks{display:flex; align-items:center; gap:6px;}
+  .navlinks button{
+    padding:9px 16px; border-radius:999px; font-size:14px; font-weight:500; color:var(--gray);
+    background:transparent; transition:background .15s, color .15s;
+  }
+  .navlinks button:hover{background:var(--violet-tint); color:var(--violet-deep);}
+  .navlinks button.active{background:var(--ink); color:#fff;}
+  .navright{display:flex; align-items:center; gap:14px;}
+  .lang-toggle{display:flex; border:1px solid var(--gray-line); border-radius:999px; overflow:hidden; font-size:12px; font-weight:600;}
+  .lang-toggle button{padding:6px 12px; background:transparent; color:var(--gray);}
+  .lang-toggle button.active{background:var(--ink); color:#fff;}
+  .btn{
+    display:inline-flex; align-items:center; gap:8px; padding:12px 22px; border-radius:999px;
+    font-weight:600; font-size:14.5px; transition:transform .15s, box-shadow .15s, background .15s;
+  }
+  .btn-primary{background:var(--ink); color:#fff;}
+  .btn-primary:hover{background:#000;}
+  .btn-ghost{background:transparent; color:var(--ink); border:1.5px solid var(--gray-line);}
+  .btn-ghost:hover{border-color:var(--ink);}
+  .btn-sm{padding:8px 16px; font-size:13px; border-radius:999px;}
+  .btn-violet{background:var(--violet); color:#fff;}
+  .btn-violet:hover{background:var(--violet-deep);}
+  .btn-secondary{background:var(--sand); color:var(--ink);}
+  .btn-secondary:hover{background:var(--sand-deep);}
+
+  /* ---------- PAGES ---------- */
+  .page{display:none; animation:fadein .4s ease;}
+  .page.active{display:block;}
+  @keyframes fadein{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;}}
+
+  /* ---------- LANDING ---------- */
+  .hero{
+    max-width:1100px; margin:0 auto; padding:100px 32px 60px; text-align:center; position:relative;
+  }
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--violet-deep);
+    background:var(--violet-tint); padding:7px 16px; border-radius:999px; margin-bottom:28px;
+  }
+  .hero h1{
+    font-size:clamp(42px, 7vw, 84px); line-height:0.98; letter-spacing:-0.035em; font-weight:700;
+  }
+  .hero h1 .accent{color:var(--violet); position:relative;}
+  .hero p.sub{
+    max-width:560px; margin:26px auto 38px; color:var(--gray); font-size:18px; line-height:1.55;
+  }
+  .hero-ctas{display:flex; gap:12px; justify-content:center; flex-wrap:wrap;}
+
+  .pillars{
+    max-width:1100px; margin:70px auto; padding:0 32px;
+    display:grid; grid-template-columns:1.3fr 1fr; gap:16px;
+  }
+  .pillar-big{
+    grid-row:span 2; background:var(--violet); color:#fff; border-radius:var(--radius-lg);
+    padding:36px; display:flex; flex-direction:column; justify-content:space-between; min-height:420px;
+    position:relative; overflow:hidden;
+  }
+
+  .pillar-tag{font-size:13px; font-weight:600; opacity:.8; text-transform:uppercase; letter-spacing:.06em;}
+  .pillar-big h3{font-size:34px; margin:14px 0 10px; letter-spacing:-0.02em;}
+  .pillar-big p{opacity:.85; font-size:15px; line-height:1.5; max-width:320px;}
+  .pillar-mini{
+    background:var(--card); border:1px solid var(--gray-line); border-radius:var(--radius-lg);
+    padding:26px; display:flex; flex-direction:column; gap:8px; transition:border-color .15s, transform .15s;
+  }
+  .pillar-mini:hover{border-color:var(--violet); transform:translateY(-2px);}
+  .pillar-mini .ico{width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px;}
+  .pillar-mini h4{font-size:19px; letter-spacing:-0.01em;}
+  .pillar-mini p{color:var(--gray); font-size:14px; line-height:1.5;}
+
+  .feature-strip{
+    max-width:1100px; margin:100px auto; padding:0 32px;
+  }
+  .feature-strip .label{font-size:13px; font-weight:600; color:var(--violet-deep); text-transform:uppercase; letter-spacing:.08em; margin-bottom:8px;}
+  .feature-strip h2{font-size:clamp(28px,4vw,42px); letter-spacing:-0.02em; max-width:640px; margin-bottom:50px;}
+  .feature-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:20px;}
+  .feature-card{background:var(--card); border:1px solid var(--gray-line); border-radius:var(--radius-md); padding:24px;}
+  .feature-card .chip{display:inline-block; font-size:11px; font-weight:600; background:var(--sand); color:var(--ink); padding:3px 9px; border-radius:6px; margin-bottom:14px;}
+  .feature-card h4{font-size:17px; margin-bottom:8px; letter-spacing:-0.01em;}
+  .feature-card p{color:var(--gray); font-size:14px; line-height:1.5;}
+
+  .cta-band{
+    max-width:1100px; margin:100px auto 60px; padding:56px 32px; background:var(--ink); color:#fff;
+    border-radius:var(--radius-lg); text-align:center;
+  }
+  .cta-band h2{font-size:clamp(28px,4vw,40px); letter-spacing:-0.02em; margin-bottom:14px;}
+  .cta-band p{color:#b9b9b9; margin-bottom:26px;}
+
+  footer{padding:40px 32px; text-align:center; color:var(--gray); font-size:13px;}
+
+  /* ---------- DASHBOARD ---------- */
+  .dash-wrap{max-width:1100px; margin:0 auto; padding:48px 32px 100px;}
+  .dash-head{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:34px; flex-wrap:wrap; gap:16px;}
+  .dash-head h1{font-size:34px; letter-spacing:-0.02em;}
+  .dash-head p{color:var(--gray); margin-top:6px;}
+  .dash-grid{display:grid; grid-template-columns:2fr 1fr; gap:22px;}
+  .card{background:var(--card); border:1px solid var(--gray-line); border-radius:var(--radius-md); padding:22px;}
+  .card-title{font-weight:600; font-size:15px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between;}
+  .study-row{
+    display:flex; align-items:center; gap:14px; padding:14px 12px; border-radius:var(--radius-sm);
+    transition:background .15s;
+  }
+  .study-row:hover{background:var(--violet-tint);}
+  .study-row + .study-row{border-top:1px solid var(--gray-line);}
+  .live-dot{width:9px; height:9px; border-radius:50%; background:#EF4444; animation:pulse 1.4s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:.35;}}
+  .study-info{flex:1;}
+  .study-info .t{font-weight:600; font-size:14.5px;}
+  .study-info .m{color:var(--gray); font-size:13px; margin-top:2px;}
+  .avatar-stack{display:flex;}
+  .avatar-stack span{
+    width:26px; height:26px; border-radius:50%; border:2px solid #fff; margin-left:-8px;
+    display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#fff;
+  }
+  .side-stat{display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--gray-line); font-size:14px;}
+  .side-stat:last-child{border-bottom:none;}
+  .side-stat b{font-weight:600;}
+  .verse-of-day{
+    background:var(--violet); color:#fff; border-radius:var(--radius-md); padding:22px; margin-top:22px;
+  }
+  .verse-of-day .ref{font-size:12px; font-weight:600; opacity:.75; text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px;}
+  .verse-of-day p{font-family:'Source Serif 4',serif; font-size:18px; line-height:1.4;}
+
+  /* ---------- STUDY ROOM ---------- */
+  .room-wrap{max-width:1280px; margin:0 auto; padding:24px 24px 40px; display:grid; grid-template-columns:1fr 340px; gap:18px;}
+  .room-head{grid-column:1/-1; display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; flex-wrap:wrap; gap:10px;}
+  .room-title{display:flex; align-items:center; gap:12px;}
+  .room-title .t{font-weight:600; font-size:17px;}
+  .room-title .meta{color:var(--gray); font-size:13px;}
+  .live-pill{display:flex; align-items:center; gap:6px; background:#FEE2E2; color:#B91C1C; padding:5px 11px; border-radius:999px; font-size:12px; font-weight:700;}
+  .stage{
+    background:#0F0F10; border-radius:var(--radius-lg); overflow:hidden; position:relative; min-height:520px;
+    display:flex; flex-direction:column;
+  }
+  .video-grid{flex:1; display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:6px;}
+  .tile{
+    position:relative; background:#1B1B1D; border-radius:12px; overflow:hidden; display:flex; align-items:center; justify-content:center;
+    aspect-ratio:4/3;
+  }
+  .tile video{width:100%; height:100%; object-fit:cover; transform:scaleX(-1);}
+  .tile.speaking{box-shadow:inset 0 0 0 2px var(--violet);}
+  .tile .avatar-fallback{
+    width:64px; height:64px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:22px; font-weight:700; color:#fff;
+  }
+  .tile .tag{
+    position:absolute; bottom:8px; left:8px; background:rgba(0,0,0,0.55); color:#fff; font-size:12px;
+    padding:4px 9px; border-radius:7px; display:flex; align-items:center; gap:5px;
+  }
+  .tile .hand-flag{position:absolute; top:8px; right:8px; font-size:18px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));}
+  .tile .mute-flag{opacity:.85;}
+  .tile.main-teacher{grid-column:span 2; grid-row:span 2;}
+
+  .scripture-overlay{
+    position:absolute; inset:0; background:rgba(15,15,16,0.82); backdrop-filter:blur(6px);
+    display:flex; align-items:center; justify-content:center; padding:40px; opacity:0; pointer-events:none;
+    transition:opacity .35s ease; z-index:5;
+  }
+  .scripture-overlay.show{opacity:1; pointer-events:auto;}
+  .scripture-card{
+    max-width:620px; background:#fff; border-radius:var(--radius-lg); padding:38px 40px; text-align:center;
+    transform:translateY(14px) scale(.97); transition:transform .35s ease;
+  }
+  .scripture-overlay.show .scripture-card{transform:none;}
+  .scripture-card .ref{color:var(--violet); font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:.08em; margin-bottom:14px;}
+  .scripture-card p{font-family:'Source Serif 4',serif; font-size:24px; line-height:1.5;}
+  .scripture-card mark{background:var(--sand-deep); padding:0 3px; border-radius:3px; cursor:pointer;}
+  .scripture-card .hint{margin-top:16px; color:var(--gray); font-size:12.5px;}
+
+  .toolbar{
+    display:flex; align-items:center; justify-content:center; gap:10px; padding:14px; background:#161617;
+    border-top:1px solid #2A2A2C;
+  }
+  .tool-btn{
+    width:46px; height:46px; border-radius:50%; background:#2A2A2C; color:#fff; display:flex; align-items:center;
+    justify-content:center; font-size:18px; transition:background .15s, transform .1s;
+  }
+  .tool-btn:hover{background:#38383B;}
+  .tool-btn:active{transform:scale(.94);}
+  .tool-btn.off{background:#EF4444;}
+  .tool-btn.on-accent{background:var(--violet);}
+  .tool-btn.raised{background:var(--sand-deep); color:var(--ink);}
+  .tool-leave{background:#EF4444 !important;}
+
+  .side-panel{display:flex; flex-direction:column; gap:14px;}
+  .tabs{display:flex; background:var(--card); border:1px solid var(--gray-line); border-radius:999px; padding:4px;}
+  .tabs button{flex:1; padding:9px 0; border-radius:999px; font-size:13px; font-weight:600; color:var(--gray); background:transparent;}
+  .tabs button.active{background:var(--ink); color:#fff;}
+  .panel-body{background:var(--card); border:1px solid var(--gray-line); border-radius:var(--radius-md); flex:1; display:flex; flex-direction:column; min-height:440px; max-height:520px;}
+  .panel-view{display:none; flex-direction:column; flex:1; min-height:0;}
+  .panel-view.active{display:flex;}
+
+  /* chat */
+  .chat-messages{flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px;}
+  .msg{max-width:88%;}
+  .msg .who{font-size:11.5px; font-weight:700; color:var(--violet-deep); margin-bottom:3px;}
+  .msg .bubble{background:var(--violet-tint); padding:9px 12px; border-radius:12px; font-size:13.5px; line-height:1.4;}
+  .msg.me{align-self:flex-end;}
+  .msg.me .bubble{background:var(--ink); color:#fff;}
+  .msg.me .who{text-align:right; color:var(--gray);}
+  .chat-input{display:flex; gap:8px; padding:12px; border-top:1px solid var(--gray-line);}
+  .chat-input input{
+    flex:1; border:1px solid var(--gray-line); border-radius:999px; padding:10px 14px; font-size:13.5px; background:var(--bg);
+  }
+  .chat-input button{width:38px; height:38px; border-radius:50%; background:var(--violet); color:#fff; flex-shrink:0;}
+
+  /* participants */
+  .plist{flex:1; overflow-y:auto; padding:10px;}
+  .prow{display:flex; align-items:center; gap:10px; padding:9px 8px; border-radius:10px;}
+  .prow:hover{background:var(--violet-tint);}
+  .prow .av{width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#fff; flex-shrink:0;}
+  .prow .name{font-size:13.5px; font-weight:500; flex:1;}
+  .prow .role{font-size:11px; color:var(--gray);}
+  .prow .flags{display:flex; gap:4px; font-size:13px;}
+
+  /* bible panel */
+  .bible-search{padding:14px; border-bottom:1px solid var(--gray-line);}
+  .bible-search input{width:100%; border:1px solid var(--gray-line); border-radius:999px; padding:10px 16px; font-size:13.5px;}
+  .verse-list{flex:1; overflow-y:auto; padding:8px 10px;}
+  .verse-item{padding:12px; border-radius:10px; cursor:pointer; transition:background .15s;}
+  .verse-item:hover{background:var(--violet-tint);}
+  .verse-item .ref{font-size:12px; font-weight:700; color:var(--violet-deep); margin-bottom:4px;}
+  .verse-item .txt{font-size:13px; color:var(--ink); line-height:1.45;}
+  .verse-item .txt.highlightable span{cursor:pointer; border-radius:3px;}
+  .verse-item .txt.highlightable span.hl{background:var(--sand-deep);}
+  .verse-item .actions{margin-top:8px; display:flex; gap:6px;}
+
+  .captions-bar{
+    position:absolute; left:16px; right:16px; bottom:84px; display:none; justify-content:center; z-index:4;
+  }
+  .captions-bar.show{display:flex;}
+  .captions-bar .box{
+    max-width:80%; background:rgba(15,15,16,0.78); color:#fff; padding:10px 18px; border-radius:var(--radius-sm);
+    font-size:15px; line-height:1.4; text-align:center;
+  }
+  .captions-bar .box .src{color:#B8B4A6; font-size:12px; margin-bottom:2px;}
+  .lang-picker{position:absolute; top:14px; right:14px; z-index:6;}
+  .lang-picker select{
+    background:rgba(0,0,0,0.55); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:999px;
+    padding:6px 12px; font-size:12.5px;
+  }
+
+  /* ---------- SIDEBAR SHELL (admin pages) ---------- */
+  .shell{display:flex; max-width:1280px; margin:0 auto;}
+  .sidebar{width:220px; flex-shrink:0; padding:28px 14px; border-right:1px solid var(--gray-line); min-height:calc(100vh - 65px);}
+  .sidebar a{
+    display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:var(--radius-sm); font-size:14px;
+    color:var(--gray); font-weight:500; margin-bottom:2px; cursor:pointer;
+  }
+  .sidebar a:hover{background:var(--sand); color:var(--ink);}
+  .sidebar a.active{background:var(--ink); color:#fff;}
+  .sidebar .section-label{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--gray); margin:18px 12px 8px;}
+  .shell-main{flex:1; min-width:0;}
+
+  /* ---------- LOGIN / JOIN ---------- */
+  .auth-wrap{max-width:400px; margin:70px auto; padding:0 24px;}
+  .auth-card{background:var(--card); border:1px solid var(--gray-line); border-radius:var(--radius-lg); padding:32px;}
+  .auth-card h1{font-size:23px; margin-bottom:6px;}
+  .auth-card p.sub{color:var(--gray); font-size:14px; margin-bottom:24px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-size:13px; font-weight:500; margin-bottom:6px;}
+  .field input, .field select{
+    width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:11px 13px; font-size:14px;
+    background:var(--bg); font-family:inherit;
+  }
+  .field input:focus, .field select:focus{outline:2px solid var(--violet); outline-offset:1px; border-color:var(--violet);}
+  .auth-divider{display:flex; align-items:center; gap:10px; margin:20px 0; color:var(--gray); font-size:12.5px;}
+  .auth-divider::before, .auth-divider::after{content:""; flex:1; height:1px; background:var(--gray-line);}
+  .auth-foot{text-align:center; font-size:13px; color:var(--gray); margin-top:18px;}
+
+  /* ---------- LIBRARY / MEMBERS TABLES ---------- */
+  .table-wrap{background:var(--card); border:1px solid var(--gray-line); border-radius:var(--radius-md); overflow:hidden;}
+  .trow{display:flex; align-items:center; gap:14px; padding:14px 18px;}
+  .trow + .trow{border-top:1px solid var(--gray-line);}
+  .trow .av{width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12.5px; font-weight:600; color:#fff; flex-shrink:0;}
+  .trow .main{flex:1; min-width:0;}
+  .trow .main .t{font-weight:500; font-size:14.5px;}
+  .trow .main .m{color:var(--gray); font-size:13px; margin-top:2px;}
+  .pill-status{font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px;}
+  .pill-status.ok{background:#E9F4E4; color:#2F5D22;}
+  .pill-status.warn{background:#FBEFE0; color:#8A5A1B;}
+  .page-inner{max-width:1000px; margin:0 auto; padding:40px 32px 80px;}
+  .page-inner-head{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:26px; flex-wrap:wrap; gap:14px;}
+  .page-inner-head h1{font-size:26px;}
+  .page-inner-head p{color:var(--gray); margin-top:4px; font-size:14px;}
+  .filter-row{display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap;}
+  .filter-row button{
+    padding:7px 14px; border-radius:999px; font-size:13px; font-weight:500; border:1px solid var(--gray-line); background:var(--card); color:var(--gray);
+  }
+  .filter-row button.active{background:var(--ink); color:#fff; border-color:var(--ink);}
+
+  /* ---------- RECAP ---------- */
+  .recap-block{background:var(--card); border:1px solid var(--gray-line); border-radius:var(--radius-md); padding:22px; margin-bottom:16px;}
+  .recap-block h3{font-size:15px; margin-bottom:12px;}
+  .recap-block p{font-size:14px; line-height:1.6; color:var(--ink);}
+  .recap-verse{border-left:2px solid var(--violet); padding-left:14px; margin-bottom:12px; font-family:'Source Serif 4',serif; font-size:15px;}
+  .recap-verse .ref{font-family:'Inter',sans-serif; font-weight:600; font-size:12.5px; color:var(--violet-deep); margin-bottom:3px;}
+
+  .toast{
+    position:fixed; bottom:26px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--ink); color:#fff;
+    padding:12px 20px; border-radius:999px; font-size:13.5px; font-weight:500; opacity:0; transition:all .3s ease;
+    z-index:200; pointer-events:none; display:flex; align-items:center; gap:8px;
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+  /* ---------- PRICING ---------- */
+  .pricing-wrap{max-width:1180px; margin:0 auto; padding:70px 32px 100px;}
+  .pricing-head{text-align:center; max-width:600px; margin:0 auto 50px;}
+  .pricing-head h1{font-size:clamp(32px,5vw,48px); letter-spacing:-0.02em;}
+  .pricing-head p{color:var(--gray); margin-top:12px; font-size:16px;}
+  .plans{display:grid; grid-template-columns:repeat(4,1fr); gap:16px;}
+  .plan{background:var(--card); border:1px solid var(--gray-line); border-radius:var(--radius-lg); padding:26px; display:flex; flex-direction:column;}
+  .plan.featured{border:2px solid var(--violet); position:relative;}
+  .plan.featured .badge{position:absolute; top:-13px; left:50%; transform:translateX(-50%); background:var(--violet); color:#fff; font-size:11px; font-weight:700; padding:5px 14px; border-radius:999px;}
+  .plan-name{font-weight:700; font-size:16px; margin-bottom:6px;}
+  .plan-price{font-size:32px; font-weight:600; margin-bottom:2px;}
+  .plan-price span{font-size:14px; color:var(--gray); font-weight:400; font-family:'Inter',sans-serif;}
+  .plan-desc{color:var(--gray); font-size:13px; margin-bottom:20px;}
+  .plan ul{list-style:none; flex:1; display:flex; flex-direction:column; gap:11px; margin-bottom:22px;}
+  .plan li{font-size:13.5px; display:flex; gap:8px; align-items:flex-start;}
+  .plan li .ck{color:var(--violet); font-weight:700; flex-shrink:0;}
+
+  @media(max-width:900px){
+    .pillars{grid-template-columns:1fr;}
+    .pillar-big{grid-row:auto; min-height:280px;}
+    .feature-grid{grid-template-columns:1fr;}
+    .dash-grid{grid-template-columns:1fr;}
+    .room-wrap{grid-template-columns:1fr;}
+    .video-grid{grid-template-columns:repeat(2,1fr);}
+    .tile.main-teacher{grid-column:span 2;}
+    .plans{grid-template-columns:1fr 1fr;}
+    .plan.featured{transform:none;}
+  }
+  @media(max-width:560px){
+    .navlinks{display:none;}
+    .plans{grid-template-columns:1fr;}
+    .video-grid{grid-template-columns:1fr 1fr;}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="brand"><span class="dot"></span> Upper Room</div>
+  <div class="navlinks">
+    <button data-page="landing" class="active">Accueil</button>
+    <button data-page="dashboard">Dashboard</button>
+    <button data-page="library">Bibliothèque</button>
+    <button data-page="members">Membres</button>
+    <button data-page="pricing">Tarifs</button>
+  </div>
+  <div class="navright">
+    <div class="lang-toggle">
+      <button class="active" id="lang-fr">FR</button>
+      <button id="lang-en">EN</button>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="showPage('join')">Rejoindre avec un lien</button>
+    <button class="btn btn-primary btn-sm" onclick="showPage('login')">Se connecter</button>
+  </div>
+</nav>
+
+<!-- ============ LOGIN ============ -->
+<section class="page" id="page-login">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <h1>Se connecter</h1>
+      <p class="sub">Accédez au tableau de bord de votre église.</p>
+      <div class="field">
+        <label>Adresse e-mail</label>
+        <input type="email" placeholder="vous@eglise.org">
+      </div>
+      <div class="field">
+        <label>Mot de passe</label>
+        <input type="password" placeholder="••••••••">
+      </div>
+      <button class="btn btn-primary" style="width:100%; justify-content:center;" onclick="showPage('dashboard')">Se connecter</button>
+      <div class="auth-divider">ou</div>
+      <button class="btn btn-ghost" style="width:100%; justify-content:center;" onclick="showPage('join')">Rejoindre une session avec un lien</button>
+      <div class="auth-foot">Pas encore de compte église ? <a href="#" style="color:var(--violet-deep); font-weight:500;">Créer une église</a></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ JOIN (GUEST ACCESS) ============ -->
+<section class="page" id="page-join">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <h1>Rejoindre une session</h1>
+      <p class="sub">Église Bethel Paris · Jean 3 — La nouvelle naissance</p>
+      <div class="field">
+        <label>Votre nom</label>
+        <input type="text" id="guestName" placeholder="Ex. Nadège Charles">
+      </div>
+      <div class="field">
+        <label>Code d'accès <span style="color:var(--gray); font-weight:400;">(si la session est privée)</span></label>
+        <input type="text" id="guestCode" placeholder="Ex. 4821">
+      </div>
+      <button class="btn btn-primary" style="width:100%; justify-content:center;" onclick="joinAsGuest()">Rejoindre en tant qu'invité</button>
+      <div class="auth-divider">ou</div>
+      <button class="btn btn-ghost" style="width:100%; justify-content:center;" onclick="showPage('login')">Se connecter avec un compte</button>
+      <div class="auth-foot">En tant qu'invité : chat, micro, caméra, main levée. Un compte débloque les notes et le récap IA.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LANDING ============ -->
+<section class="page active" id="page-landing">
+  <div class="hero">
+    <div class="eyebrow">✝ Conçu pour les églises francophones &amp; créolophones</div>
+    <h1>Your church.<br>One <span class="accent">place.</span></h1>
+    <p class="sub">Études bibliques en direct, traduction multilingue, bibliothèque et communauté — sur une plateforme qui vous appartient, pas un lien Zoom perdu dans un email.</p>
+    <div class="hero-ctas">
+      <button class="btn btn-primary" onclick="showPage('dashboard')">Commencer gratuitement →</button>
+      <button class="btn btn-ghost" onclick="showPage('room')">Voir une salle en direct</button>
+    </div>
+  </div>
+
+  <div class="pillars">
+    <div class="pillar-big">
+      
+      <div>
+        <div class="pillar-tag">🎥 Meet</div>
+        <h3>Rencontrez-vous, où que vous soyez.</h3>
+        <p>Visioconférence intégrée avec traduction live, main levée, Bible partagée et enregistrement — sans jamais quitter votre plateforme.</p>
+      </div>
+      <button class="btn btn-secondary btn-sm" style="align-self:flex-start" onclick="showPage('room')">Entrer dans une étude →</button>
+    </div>
+    <div class="pillar-mini">
+      <div class="ico" style="background:var(--violet-tint); color:var(--violet-deep);">📖</div>
+      <h4>Teach</h4>
+      <p>Créez des parcours de formation, suivez la progression de vos étudiants.</p>
+    </div>
+    <div class="pillar-mini">
+      <div class="ico" style="background:#FFF4DE; color:#B45309;">👥</div>
+      <h4>Connect</h4>
+      <p>Groupes de maison, annuaire des membres, calendrier partagé.</p>
+    </div>
+    <div class="pillar-mini">
+      <div class="ico" style="background:#E9F9E0; color:#3F7A1F;">🌱</div>
+      <h4>Grow</h4>
+      <p>Recaps automatiques, versets clés, bibliothèque de replays.</p>
+    </div>
+  </div>
+
+  <div class="feature-strip">
+    <div class="label">Ce qui nous différencie</div>
+    <h2>Pas juste une visio. Une plateforme d'enseignement pensée pour l'église.</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <span class="chip">Traduction live</span>
+        <h4>Multilingue, créole inclus</h4>
+        <p>Sous-titres et pistes audio séparées par langue, pensés pour les communautés créolophones et la diaspora.</p>
+      </div>
+      <div class="feature-card">
+        <span class="chip">Bible intégrée</span>
+        <h4>Un verset affiché, tout le monde le voit</h4>
+        <p>L'enseignant partage une référence, elle apparaît instantanément chez chaque participant, dans sa langue.</p>
+      </div>
+      <div class="feature-card">
+        <span class="chip">Recap IA</span>
+        <h4>Un résumé après chaque étude</h4>
+        <p>Versets cités, points clés, résumé — envoyés automatiquement aux participants après la session.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="cta-band">
+    <h2>Votre église mérite mieux qu'un lien Zoom.</h2>
+    <p>Gratuit pour démarrer. Aucune carte bancaire requise.</p>
+    <button class="btn btn-secondary" onclick="showPage('dashboard')">Créer mon église →</button>
+  </div>
+
+  <footer>© 2026 Upper Room — visioconférence pour les églises.</footer>
+</section>
+
+<!-- ============ DASHBOARD ============ -->
+<section class="page" id="page-dashboard">
+  <div class="dash-wrap">
+    <div class="dash-head">
+      <div>
+        <h1>Bonjour, Roosevelt 👋</h1>
+        <p>Église Bethel Paris — 3 études cette semaine</p>
+      </div>
+      <button class="btn btn-primary" onclick="showPage('room')">+ Nouvelle étude</button>
+    </div>
+    <div class="dash-grid">
+      <div class="card">
+        <div class="card-title">Mes études <button class="btn btn-ghost btn-sm">Voir tout</button></div>
+
+        <div class="study-row">
+          <span class="live-dot"></span>
+          <div class="study-info">
+            <div class="t">Jean 3 — La nouvelle naissance</div>
+            <div class="m">En direct · Pasteur Roosevelt · 27 participants</div>
+          </div>
+          <div class="avatar-stack">
+            <span style="background:#6D4AFF">R</span><span style="background:#EF4444">M</span><span style="background:#F59E0B">S</span>
+          </div>
+          <button class="btn btn-violet btn-sm" onclick="showPage('room')">Rejoindre</button>
+        </div>
+
+        <div class="study-row">
+          <div class="study-info">
+            <div class="t">Jeunes adultes — Vendredi 20h00</div>
+            <div class="m">Enseignant : David · Traduction FR → HT activée</div>
+          </div>
+          <button class="btn btn-ghost btn-sm">Planifiée</button>
+        </div>
+
+        <div class="study-row">
+          <div class="study-info">
+            <div class="t">Groupe de prière — Dimanche 18h00</div>
+            <div class="m">Enseignant : Sarah · Salle privée</div>
+          </div>
+          <button class="btn btn-ghost btn-sm">Planifiée</button>
+        </div>
+
+        <div class="study-row">
+          <div class="study-info">
+            <div class="t">École biblique — Niveau 1, module 4</div>
+            <div class="m">143 étudiants · 8 enseignants</div>
+          </div>
+          <button class="btn btn-ghost btn-sm">Ouvrir</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-title">Cette semaine</div>
+          <div class="side-stat"><span>Études programmées</span><b>3</b></div>
+          <div class="side-stat"><span>Membres actifs</span><b>212</b></div>
+          <div class="side-stat"><span>Langues utilisées</span><b>FR · HT · EN</b></div>
+          <div class="side-stat"><span>Replays disponibles</span><b>18</b></div>
+        </div>
+        <div class="verse-of-day">
+          <div class="ref">Verset du jour · Jean 3:16</div>
+          <p>"Car Dieu a tant aimé le monde qu'il a donné son Fils unique."</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ STUDY ROOM ============ -->
+<section class="page" id="page-room">
+  <div class="room-wrap">
+    <div class="room-head">
+      <div class="room-title">
+        <div class="live-pill"><span class="live-dot" style="background:#B91C1C"></span> EN DIRECT</div>
+        <div>
+          <div class="t">Jean 3 — La nouvelle naissance</div>
+          <div class="meta">Pasteur Roosevelt · Traduction FR → HT active · 6 participants</div>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="showPage('dashboard')">← Quitter la salle</button>
+    </div>
+
+    <div class="stage">
+      <div class="video-grid" id="videoGrid">
+        <div class="tile main-teacher" id="localTile">
+          <video id="localVideo" autoplay muted playsinline></video>
+          <div class="avatar-fallback" id="localFallback" style="background:#6D4AFF; display:none;">R</div>
+          <div class="tag"><span id="localMicIcon">🎙️</span> Vous (Roosevelt) · Enseignant</div>
+        </div>
+        <div class="tile" data-name="Magda" style="background:#0F0F10;">
+          <div class="avatar-fallback" style="background:#EF4444;">M</div>
+          <div class="tag">🎙️ Magda</div>
+        </div>
+        <div class="tile" data-name="Samuel" style="background:#0F0F10;">
+          <div class="avatar-fallback" style="background:#F59E0B;">S</div>
+          <div class="tag mute-flag">🔇 Samuel</div>
+        </div>
+        <div class="tile" data-name="Nadège" style="background:#0F0F10;">
+          <div class="avatar-fallback" style="background:#10B981;">N</div>
+          <div class="tag">🎙️ Nadège</div>
+          <div class="hand-flag" id="nadegeHand" style="display:none;">✋</div>
+        </div>
+        <div class="tile" data-name="Jean-Paul" style="background:#0F0F10;">
+          <div class="avatar-fallback" style="background:#3B82F6;">J</div>
+          <div class="tag mute-flag">🔇 Jean-Paul</div>
+        </div>
+        <div class="tile" data-name="Ruth" style="background:#0F0F10;">
+          <div class="avatar-fallback" style="background:#EC4899;">R</div>
+          <div class="tag">🎙️ Ruth</div>
+        </div>
+      </div>
+
+      <div class="lang-picker">
+        <select id="captionLang" title="Langue des sous-titres">
+          <option value="off">Sous-titres : désactivés</option>
+          <option value="fr">Sous-titres : Français</option>
+          <option value="ht">Sous-titres : Kreyòl</option>
+          <option value="en">Sous-titres : English</option>
+        </select>
+      </div>
+
+      <div class="scripture-overlay" id="scriptureOverlay">
+        <div class="scripture-card">
+          <div class="ref" id="overlayRef">JEAN 3:16</div>
+          <p id="overlayText" class="highlightable"></p>
+          <div class="hint">Cliquez sur un mot pour le surligner pour tout le monde · Version LSG</div>
+        </div>
+      </div>
+
+      <div class="captions-bar" id="captionsBar">
+        <div class="box"><div class="src" id="captionSrc">FR → HT</div><span id="captionText"></span></div>
+      </div>
+
+      <div class="toolbar">
+        <button class="tool-btn" id="micBtn" title="Micro">🎙️</button>
+        <button class="tool-btn" id="camBtn" title="Caméra">🎥</button>
+        <button class="tool-btn" id="shareBtn" title="Partager l'écran">🖥️</button>
+        <button class="tool-btn" id="handBtn" title="Lever la main">✋</button>
+        <button class="tool-btn on-accent" id="bibleBtn" title="Afficher un verset">📖</button>
+        <button class="tool-btn tool-leave" title="Quitter" onclick="endSession()">✕</button>
+      </div>
+    </div>
+
+    <div class="side-panel">
+      <div class="tabs">
+        <button data-tab="chat" class="active">Chat</button>
+        <button data-tab="bible">Bible</button>
+        <button data-tab="people">Participants</button>
+        <button data-tab="notes">Notes IA</button>
+      </div>
+      <div class="panel-body">
+
+        <div class="panel-view active" id="tab-chat">
+          <div class="chat-messages" id="chatMessages">
+            <div class="msg">
+              <div class="who">Magda</div>
+              <div class="bubble">Bonsoir tout le monde 🙏</div>
+            </div>
+            <div class="msg">
+              <div class="who">Samuel</div>
+              <div class="bubble">La traduction créole fonctionne très bien ce soir</div>
+            </div>
+            <div class="msg">
+              <div class="who">Système</div>
+              <div class="bubble">📖 Jean 3:16 a été partagé par Roosevelt</div>
+            </div>
+          </div>
+          <div class="chat-input">
+            <input type="text" id="chatInput" placeholder="Écrire un message…">
+            <button onclick="sendChat()">→</button>
+          </div>
+        </div>
+
+        <div class="panel-view" id="tab-bible">
+          <div class="bible-search">
+            <input type="text" placeholder="Rechercher un verset ou une référence…">
+          </div>
+          <div class="verse-list" id="verseList"></div>
+        </div>
+
+        <div class="panel-view" id="tab-people">
+          <div class="plist" id="peopleList"></div>
+        </div>
+
+        <div class="panel-view" id="tab-notes" style="padding:16px; overflow-y:auto;">
+          <p style="font-size:12.5px; color:var(--gray); margin-bottom:12px;">Prise de notes automatique — disponible avec un compte</p>
+          <div style="background:var(--violet-tint); border-radius:var(--radius-sm); padding:12px; font-size:13.5px; line-height:1.5; margin-bottom:10px;">
+            L'enseignant explique que la nouvelle naissance est une œuvre spirituelle, pas un effort humain.
+          </div>
+          <div style="background:var(--violet-tint); border-radius:var(--radius-sm); padding:12px; font-size:13.5px; line-height:1.5;">
+            Point clé : Jean 3:16 relie l'amour de Dieu au don de son Fils.
+          </div>
+          <p style="font-size:12px; color:var(--gray); margin-top:14px;">Un récap complet sera envoyé à la fin de la session.</p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PRICING ============ -->
+<section class="page" id="page-pricing">
+  <div class="pricing-wrap">
+    <div class="pricing-head">
+      <h1>Un plan pour chaque église</h1>
+      <p>Commencez gratuitement. Passez à l'échelle quand votre communauté grandit.</p>
+    </div>
+    <div class="plans">
+      <div class="plan">
+        <div class="plan-name">Free</div>
+        <div class="plan-price">0€ <span>/mois</span></div>
+        <div class="plan-desc">Pour démarrer avec votre église</div>
+        <ul>
+          <li><span class="ck">✓</span> 50 membres</li>
+          <li><span class="ck">✓</span> 1 salle d'étude</li>
+          <li><span class="ck">✓</span> Calendrier &amp; chat</li>
+          <li><span class="ck">✓</span> Visioconférence limitée</li>
+        </ul>
+        <button class="btn btn-ghost" onclick="showPage('dashboard')">Commencer</button>
+      </div>
+      <div class="plan featured">
+        <div class="badge">Le plus choisi</div>
+        <div class="plan-name">Church</div>
+        <div class="plan-price">29€ <span>/mois</span></div>
+        <div class="plan-desc">Pour les églises actives</div>
+        <ul>
+          <li><span class="ck">✓</span> 300 membres</li>
+          <li><span class="ck">✓</span> Études illimitées</li>
+          <li><span class="ck">✓</span> Plusieurs enseignants</li>
+          <li><span class="ck">✓</span> Replays &amp; bibliothèque</li>
+          <li><span class="ck">✓</span> Traduction live (2 langues)</li>
+        </ul>
+        <button class="btn btn-primary" onclick="showPage('dashboard')">Choisir Church</button>
+      </div>
+      <div class="plan">
+        <div class="plan-name">Church Pro</div>
+        <div class="plan-price">59€ <span>/mois</span></div>
+        <div class="plan-desc">Marque blanche &amp; traduction avancée</div>
+        <ul>
+          <li><span class="ck">✓</span> 1 000 membres</li>
+          <li><span class="ck">✓</span> Domaine personnalisé</li>
+          <li><span class="ck">✓</span> Traduction illimitée (créole inclus)</li>
+          <li><span class="ck">✓</span> Recap IA automatique</li>
+          <li><span class="ck">✓</span> Statistiques avancées</li>
+        </ul>
+        <button class="btn btn-ghost" onclick="showPage('dashboard')">Choisir Pro</button>
+      </div>
+      <div class="plan">
+        <div class="plan-name">Network</div>
+        <div class="plan-price">99€ <span>/mois+</span></div>
+        <div class="plan-desc">Pour les réseaux multi-églises</div>
+        <ul>
+          <li><span class="ck">✓</span> Églises illimitées</li>
+          <li><span class="ck">✓</span> Administration centralisée</li>
+          <li><span class="ck">✓</span> Support prioritaire</li>
+          <li><span class="ck">✓</span> Facturation groupée</li>
+        </ul>
+        <button class="btn btn-ghost" onclick="showPage('dashboard')">Nous contacter</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LIBRARY ============ -->
+<section class="page" id="page-library">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="section-label">Bibliothèque</div>
+      <a class="active">Programmes d'étude</a>
+      <a>Replays</a>
+      <a>Versets sauvegardés</a>
+      <div class="section-label">Église</div>
+      <a onclick="showPage('dashboard')">Dashboard</a>
+      <a onclick="showPage('members')">Membres</a>
+    </div>
+    <div class="shell-main">
+      <div class="page-inner">
+        <div class="page-inner-head">
+          <div>
+            <h1>Programmes d'étude</h1>
+            <p>Parcours réutilisables sur plusieurs semaines</p>
+          </div>
+          <button class="btn btn-primary btn-sm">+ Nouveau programme</button>
+        </div>
+        <div class="table-wrap">
+          <div class="trow">
+            <div class="av" style="background:#6D4AFF;">JN</div>
+            <div class="main">
+              <div class="t">Évangile de Jean — Parcours en 12 semaines</div>
+              <div class="m">Semaine 3 sur 12 · Enseignant : Roosevelt</div>
+            </div>
+            <span class="pill-status ok">En cours</span>
+          </div>
+          <div class="trow">
+            <div class="av" style="background:#D97757;">JA</div>
+            <div class="main">
+              <div class="t">Jeunes adultes — Fondements de la foi</div>
+              <div class="m">6 semaines · Enseignant : David</div>
+            </div>
+            <span class="pill-status ok">En cours</span>
+          </div>
+          <div class="trow">
+            <div class="av" style="background:#3B7A57;">EB</div>
+            <div class="main">
+              <div class="t">École biblique — Niveau 1</div>
+              <div class="m">Module 4 sur 8 · 8 enseignants</div>
+            </div>
+            <span class="pill-status warn">En pause</span>
+          </div>
+          <div class="trow">
+            <div class="av" style="background:#8A5A1B;">FM</div>
+            <div class="main">
+              <div class="t">Groupe de prière — Femmes</div>
+              <div class="m">Programme terminé · 8 semaines</div>
+            </div>
+            <span class="pill-status warn">Archivé</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MEMBERS ============ -->
+<section class="page" id="page-members">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="section-label">Église</div>
+      <a onclick="showPage('dashboard')">Dashboard</a>
+      <a onclick="showPage('library')">Bibliothèque</a>
+      <a class="active">Membres</a>
+      <div class="section-label">Groupes</div>
+      <a>Jeunesse</a>
+      <a>Femmes</a>
+      <a>Cellules de maison</a>
+      <a style="color:var(--violet-deep);">+ Nouveau groupe</a>
+    </div>
+    <div class="shell-main">
+      <div class="page-inner">
+        <div class="page-inner-head">
+          <div>
+            <h1>Membres</h1>
+            <p>212 membres · présence suivie automatiquement</p>
+          </div>
+          <button class="btn btn-primary btn-sm">+ Inviter un membre</button>
+        </div>
+        <div class="filter-row">
+          <button class="active">Tous</button>
+          <button>Jeunesse</button>
+          <button>Femmes</button>
+          <button>Cellules de maison</button>
+          <button>Inactifs 3+ semaines</button>
+        </div>
+        <div class="table-wrap">
+          <div class="trow">
+            <div class="av" style="background:#6D4AFF;">M</div>
+            <div class="main"><div class="t">Magda Pierre</div><div class="m">Présente à 9 des 10 dernières études</div></div>
+            <span class="pill-status ok">Actif</span>
+          </div>
+          <div class="trow">
+            <div class="av" style="background:#F59E0B;">S</div>
+            <div class="main"><div class="t">Samuel Louis</div><div class="m">Présent à 7 des 10 dernières études</div></div>
+            <span class="pill-status ok">Actif</span>
+          </div>
+          <div class="trow">
+            <div class="av" style="background:#10B981;">N</div>
+            <div class="main"><div class="t">Nadège Charles</div><div class="m">Groupe Femmes · a levé la main 4 fois</div></div>
+            <span class="pill-status ok">Actif</span>
+          </div>
+          <div class="trow">
+            <div class="av" style="background:#3B82F6;">JP</div>
+            <div class="main"><div class="t">Jean-Paul Michel</div><div class="m">Absent depuis 3 semaines</div></div>
+            <span class="pill-status warn">À recontacter</span>
+          </div>
+          <div class="trow">
+            <div class="av" style="background:#EC4899;">R</div>
+            <div class="main"><div class="t">Ruth Joseph</div><div class="m">Modératrice · Cellules de maison</div></div>
+            <span class="pill-status ok">Actif</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SESSION RECAP ============ -->
+<section class="page" id="page-recap">
+  <div class="page-inner">
+    <div class="page-inner-head">
+      <div>
+        <h1>Récap de session</h1>
+        <p>Jean 3 — La nouvelle naissance · Envoyé automatiquement à 6 participants</p>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="showPage('dashboard')">← Retour au dashboard</button>
+    </div>
+
+    <div class="recap-block">
+      <h3>Résumé</h3>
+      <p>L'enseignant a expliqué que la nouvelle naissance est une œuvre spirituelle initiée par Dieu, à distinguer d'un effort ou d'une réforme personnelle. La session a fait le lien entre l'amour de Dieu et le don de son Fils, en s'appuyant sur Jean 3.</p>
+    </div>
+
+    <div class="recap-block">
+      <h3>Versets partagés</h3>
+      <div class="recap-verse">
+        <div class="ref">Jean 3:16</div>
+        "Car Dieu a tant aimé le monde qu'il a donné son Fils unique, afin que quiconque croit en lui ne périsse point, mais qu'il ait la vie éternelle."
+      </div>
+      <div class="recap-verse">
+        <div class="ref">Romains 8:28</div>
+        "Nous savons, du reste, que toutes choses concourent au bien de ceux qui aiment Dieu."
+      </div>
+    </div>
+
+    <div class="recap-block">
+      <h3>Présence &amp; engagement</h3>
+      <p>6 participants · 3 questions posées dans le chat · 1 main levée · Transcription complète disponible dans la bibliothèque.</p>
+    </div>
+
+    <button class="btn btn-primary" onclick="showPage('dashboard')">Retour au dashboard</button>
+  </div>
+</section>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- NAV / PAGE SWITCH ---------- */
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  document.querySelectorAll('.navlinks button').forEach(b=>b.classList.toggle('active', b.dataset.page===id));
+  window.scrollTo({top:0, behavior:'instant'});
+  if(id==='room' && !cameraInitialized){ initCamera(); }
+}
+document.querySelectorAll('.navlinks button').forEach(b=>b.addEventListener('click', ()=>showPage(b.dataset.page)));
+
+/* ---------- LANG TOGGLE (marketing pages) ---------- */
+const i18n = {
+  fr: {h1:"Your church.<br>One <span class='accent'>place.</span>", sub:"Études bibliques en direct, traduction multilingue, bibliothèque et communauté — sur une plateforme qui vous appartient, pas un lien Zoom perdu dans un email.", cta1:"Commencer gratuitement →", cta2:"Voir une salle en direct"},
+  en: {h1:"Your church.<br>One <span class='accent'>place.</span>", sub:"Live Bible studies, multilingual translation, a library and a community — on a platform that's truly yours, not a Zoom link buried in an email.", cta1:"Start for free →", cta2:"See a live room"}
+};
+function setLang(lang){
+  document.getElementById('lang-fr').classList.toggle('active', lang==='fr');
+  document.getElementById('lang-en').classList.toggle('active', lang==='en');
+  document.querySelector('.hero h1').innerHTML = i18n[lang].h1;
+  document.querySelector('.hero p.sub').textContent = i18n[lang].sub;
+  document.querySelectorAll('.hero-ctas button')[0].textContent = i18n[lang].cta1;
+  document.querySelectorAll('.hero-ctas button')[1].textContent = i18n[lang].cta2;
+}
+document.getElementById('lang-fr').addEventListener('click', ()=>setLang('fr'));
+document.getElementById('lang-en').addEventListener('click', ()=>setLang('en'));
+
+/* ---------- TOAST ---------- */
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(()=>t.classList.remove('show'), 2400);
+}
+
+/* ---------- CAMERA / MIC (real getUserMedia) ---------- */
+let cameraInitialized = false;
+let localStream = null;
+let micOn = true, camOn = true, handRaised = false, presenting = false;
+
+async function initCamera(){
+  cameraInitialized = true;
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({video:true, audio:true});
+    document.getElementById('localVideo').srcObject = localStream;
+    toast('Caméra et micro connectés ✅');
+  }catch(err){
+    document.getElementById('localVideo').style.display='none';
+    document.getElementById('localFallback').style.display='flex';
+    toast('Caméra/micro non autorisés — mode démo sans flux réel');
+  }
+}
+
+document.getElementById('micBtn').addEventListener('click', function(){
+  micOn = !micOn;
+  this.classList.toggle('off', !micOn);
+  this.textContent = micOn ? '🎙️' : '🔇';
+  document.getElementById('localMicIcon').textContent = micOn ? '🎙️' : '🔇';
+  if(localStream) localStream.getAudioTracks().forEach(t=> t.enabled = micOn);
+  toast(micOn ? 'Micro activé' : 'Micro coupé');
+});
+
+document.getElementById('camBtn').addEventListener('click', function(){
+  camOn = !camOn;
+  this.classList.toggle('off', !camOn);
+  this.textContent = camOn ? '🎥' : '🚫';
+  document.getElementById('localVideo').style.display = camOn ? 'block' : 'none';
+  document.getElementById('localFallback').style.display = camOn ? 'none' : 'flex';
+  if(localStream) localStream.getVideoTracks().forEach(t=> t.enabled = camOn);
+  toast(camOn ? 'Caméra activée' : 'Caméra coupée');
+});
+
+document.getElementById('shareBtn').addEventListener('click', async function(){
+  if(!presenting){
+    try{
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({video:true});
+      document.getElementById('localVideo').srcObject = screenStream;
+      presenting = true;
+      this.classList.add('on-accent');
+      toast('Vous présentez votre écran');
+      screenStream.getVideoTracks()[0].addEventListener('ended', stopShare);
+    }catch(err){ toast('Partage d\'écran annulé'); }
+  } else {
+    stopShare();
+  }
+});
+function stopShare(){
+  presenting = false;
+  document.getElementById('shareBtn').classList.remove('on-accent');
+  if(localStream) document.getElementById('localVideo').srcObject = localStream;
+  toast('Partage d\'écran arrêté');
+}
+
+document.getElementById('handBtn').addEventListener('click', function(){
+  handRaised = !handRaised;
+  this.classList.toggle('raised', handRaised);
+  toast(handRaised ? '✋ Main levée — l\'enseignant a été notifié' : 'Main baissée');
+});
+
+/* simulate another participant raising hand */
+setTimeout(()=>{
+  document.getElementById('nadegeHand').style.display='block';
+}, 4000);
+
+/* speaking indicator simulation */
+const tiles = ()=>document.querySelectorAll('.tile:not(#localTile)');
+setInterval(()=>{
+  tiles().forEach(t=>t.classList.remove('speaking'));
+  const list = tiles();
+  if(list.length){
+    const pick = list[Math.floor(Math.random()*list.length)];
+    pick.classList.add('speaking');
+  }
+}, 2600);
+
+/* ---------- SCRIPTURE / BIBLE PANEL ---------- */
+const verses = [
+  {ref:"Jean 3:16", text:"Car Dieu a tant aimé le monde qu'il a donné son Fils unique, afin que quiconque croit en lui ne périsse point, mais qu'il ait la vie éternelle."},
+  {ref:"Psaume 23:1", text:"L'Éternel est mon berger : je ne manquerai de rien."},
+  {ref:"Romains 8:28", text:"Nous savons, du reste, que toutes choses concourent au bien de ceux qui aiment Dieu."},
+  {ref:"Philippiens 4:13", text:"Je puis tout par celui qui me fortifie."},
+  {ref:"Ésaïe 41:10", text:"Ne crains rien, car je suis avec toi ; ne prends pas d'inquiétude, car je suis ton Dieu."}
+];
+
+function renderVerseList(){
+  const list = document.getElementById('verseList');
+  list.innerHTML = '';
+  verses.forEach((v,i)=>{
+    const div = document.createElement('div');
+    div.className = 'verse-item';
+    div.innerHTML = `<div class="ref">${v.ref}</div><div class="txt">${v.text}</div>
+      <div class="actions"><button class="btn btn-violet btn-sm" data-idx="${i}">Afficher à tous</button></div>`;
+    list.appendChild(div);
+  });
+  list.querySelectorAll('button[data-idx]').forEach(btn=>{
+    btn.addEventListener('click', ()=> showScripture(verses[+btn.dataset.idx]));
+  });
+}
+renderVerseList();
+
+function showScripture(verse){
+  document.getElementById('overlayRef').textContent = verse.ref.toUpperCase();
+  const words = verse.text.split(' ');
+  document.getElementById('overlayText').innerHTML = words.map(w=>`<span>${w}</span>`).join(' ');
+  document.getElementById('scriptureOverlay').classList.add('show');
+  toast('📖 '+verse.ref+' affiché à tous les participants');
+  switchTab('chat');
+  addSystemMessage('📖 '+verse.ref+' a été partagé par Roosevelt');
+}
+document.getElementById('bibleBtn').addEventListener('click', ()=> showScripture(verses[0]));
+document.getElementById('scriptureOverlay').addEventListener('click', function(e){
+  if(e.target === this){ this.classList.remove('show'); }
+});
+document.getElementById('overlayText').addEventListener('click', function(e){
+  if(e.target.tagName === 'SPAN'){ e.target.classList.toggle('hl'); }
+});
+
+/* ---------- TABS ---------- */
+function switchTab(name){
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+  document.querySelectorAll('.panel-view').forEach(p=>p.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+}
+document.querySelectorAll('.tabs button').forEach(b=> b.addEventListener('click', ()=>switchTab(b.dataset.tab)));
+
+/* ---------- PEOPLE LIST ---------- */
+const people = [
+  {name:'Roosevelt', role:'Enseignant', color:'#6D4AFF', mic:true, hand:false},
+  {name:'Magda', role:'Membre', color:'#EF4444', mic:true, hand:false},
+  {name:'Samuel', role:'Membre', color:'#F59E0B', mic:false, hand:false},
+  {name:'Nadège', role:'Membre', color:'#10B981', mic:true, hand:true},
+  {name:'Jean-Paul', role:'Membre', color:'#3B82F6', mic:false, hand:false},
+  {name:'Ruth', role:'Modératrice', color:'#EC4899', mic:true, hand:false}
+];
+function renderPeople(){
+  const wrap = document.getElementById('peopleList');
+  wrap.innerHTML = people.map(p=>`
+    <div class="prow">
+      <div class="av" style="background:${p.color}">${p.name[0]}</div>
+      <div><div class="name">${p.name}</div><div class="role">${p.role}</div></div>
+      <div class="flags">${p.hand?'✋':''} ${p.mic?'🎙️':'🔇'}</div>
+    </div>`).join('');
+}
+renderPeople();
+
+/* ---------- CHAT ---------- */
+function addSystemMessage(text){
+  const wrap = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg';
+  div.innerHTML = `<div class="who">Système</div><div class="bubble">${text}</div>`;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+function sendChat(){
+  const input = document.getElementById('chatInput');
+  const val = input.value.trim();
+  if(!val) return;
+  const wrap = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg me';
+  div.innerHTML = `<div class="who">Vous</div><div class="bubble">${val.replace(/</g,'&lt;')}</div>`;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+  input.value = '';
+}
+document.getElementById('chatInput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
+
+/* ---------- GUEST JOIN / END SESSION ---------- */
+function joinAsGuest(){
+  const name = document.getElementById('guestName').value.trim();
+  if(!name){ toast('Entrez votre nom pour continuer'); return; }
+  showPage('room');
+  toast('Bienvenue ' + name + ' — vous avez rejoint en tant qu\'invité');
+}
+function endSession(){
+  showPage('recap');
+}
+
+/* ---------- LIVE TRANSLATED CAPTIONS (simulated) ---------- */
+const captionSamples = {
+  fr:[{src:'FR (original)', text:"Dieu a tant aimé le monde qu'il a donné son Fils unique."}],
+  ht:[{src:'FR → Kreyòl', text:"Bondye sitèlman renmen lemonn li te bay sèl Pitit li a."}],
+  en:[{src:'FR → English', text:"God so loved the world that he gave his one and only Son."}]
+};
+let captionTimer = null;
+document.getElementById('captionLang').addEventListener('change', function(){
+  const bar = document.getElementById('captionsBar');
+  clearInterval(captionTimer);
+  if(this.value === 'off'){ bar.classList.remove('show'); return; }
+  const samples = captionSamples[this.value];
+  let i = 0;
+  function showCaption(){
+    document.getElementById('captionSrc').textContent = samples[i % samples.length].src;
+    document.getElementById('captionText').textContent = samples[i % samples.length].text;
+    bar.classList.add('show');
+    i++;
+  }
+  showCaption();
+  captionTimer = setInterval(showCaption, 6000);
+  toast('Sous-titres traduits activés');
+});
+</script>
+</body>
+</html>
