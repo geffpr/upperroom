@@ -196,7 +196,8 @@
     position:relative; background:#1B1B1D; border-radius:12px; overflow:hidden; display:flex; align-items:center; justify-content:center;
     aspect-ratio:4/3;
   }
-  .tile video{width:100%; height:100%; object-fit:cover; transform:scaleX(-1);}
+  .tile video{width:100%; height:100%; object-fit:cover;}
+  .mirror-video{transform:scaleX(-1);}
   .tile.speaking{box-shadow:inset 0 0 0 2px var(--violet);}
   .tile .avatar-fallback{
     width:64px; height:64px; border-radius:50%; display:flex; align-items:center; justify-content:center;
@@ -675,7 +676,7 @@
     <div class="stage">
       <div class="video-grid" id="videoGrid">
         <div class="tile main-teacher" id="localTile">
-          <video id="localVideo" autoplay muted playsinline></video>
+          <video id="localVideo" class="mirror-video" autoplay muted playsinline></video>
           <div class="avatar-fallback" id="localFallback" style="background:#6D4AFF; display:none;">R</div>
           <div class="tag"><span id="localMicIcon">🎙️</span> <span id="localNameTag">Vous</span></div>
         </div>
@@ -1054,6 +1055,25 @@ function createRemoteTile(participant){
   return tile;
 }
 
+function createScreenShareTile(participant){
+  const grid = document.getElementById('videoGrid');
+  const tile = document.createElement('div');
+  tile.className = 'tile main-teacher'; // mis en avant, comme la tuile locale
+  tile.id = 'screen-' + participant.identity;
+  tile.style.background = '#0F0F10';
+  tile.innerHTML = `
+    <video autoplay playsinline style="width:100%; height:100%; object-fit:contain;"></video>
+    <div class="tag">🖥️ Écran partagé par ${participant.name || participant.identity}</div>
+  `;
+  grid.insertBefore(tile, grid.firstChild.nextSibling); // juste après la tuile locale
+  return tile;
+}
+
+function removeScreenShareTile(participant){
+  const tile = document.getElementById('screen-' + participant.identity);
+  if(tile) tile.remove();
+}
+
 function removeRemoteTile(participant){
   const tile = document.getElementById('tile-' + participant.identity);
   if(tile) tile.remove();
@@ -1274,19 +1294,31 @@ async function initCamera(){
     liveKitRoom = new Room();
 
     liveKitRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-      let tile = document.getElementById('tile-' + participant.identity);
-      if(!tile) tile = createRemoteTile(participant);
-      if(track.kind === 'video'){
-        const videoEl = tile.querySelector('video');
-        track.attach(videoEl);
+      const isScreenShare = publication.source === 'screen_share';
+
+      if(isScreenShare && track.kind === 'video'){
+        let screenTile = document.getElementById('screen-' + participant.identity);
+        if(!screenTile) screenTile = createScreenShareTile(participant);
+        track.attach(screenTile.querySelector('video'));
+      } else if(track.kind === 'video'){
+        let tile = document.getElementById('tile-' + participant.identity);
+        if(!tile) tile = createRemoteTile(participant);
+        track.attach(tile.querySelector('video'));
       } else if(track.kind === 'audio'){
         track.attach();
       }
       upsertPerson(participant.identity, participant.name || participant.identity, 'Membre');
     });
 
+    liveKitRoom.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+      if(publication.source === 'screen_share'){
+        removeScreenShareTile(participant);
+      }
+    });
+
     liveKitRoom.on(RoomEvent.ParticipantDisconnected, (participant) => {
       removeRemoteTile(participant);
+      removeScreenShareTile(participant);
       removePerson(participant.identity);
     });
 
@@ -1367,8 +1399,10 @@ document.getElementById('shareBtn').addEventListener('click', async function(){
       btn.classList.add('on-accent');
       toast('Partage d\'écran actif — visible par tous les participants');
       if(publication && publication.track){
-        publication.track.attach(document.getElementById('localVideo'));
-        // Se déclenche si l'utilisateur clique "Arrêter le partage" depuis le navigateur lui-même
+        const localIdentity = liveKitRoom.localParticipant.identity;
+        let screenTile = document.getElementById('screen-' + localIdentity);
+        if(!screenTile) screenTile = createScreenShareTile({ identity: localIdentity, name: 'vous' });
+        publication.track.attach(screenTile.querySelector('video'));
         publication.track.mediaStreamTrack.addEventListener('ended', stopShare);
       }
     }catch(err){
@@ -1382,12 +1416,7 @@ document.getElementById('shareBtn').addEventListener('click', async function(){
 async function stopShare(){
   if(liveKitRoom){
     await liveKitRoom.localParticipant.setScreenShareEnabled(false);
-    // Remet la caméra dans la tuile locale
-    liveKitRoom.localParticipant.videoTrackPublications.forEach(pub => {
-      if(pub.source === 'camera' && pub.track){
-        pub.track.attach(document.getElementById('localVideo'));
-      }
-    });
+    removeScreenShareTile({ identity: liveKitRoom.localParticipant.identity });
   }
   presenting = false;
   document.getElementById('shareBtn').classList.remove('on-accent');
