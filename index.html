@@ -418,39 +418,61 @@
   </div>
 </nav>
 
-<!-- ============ LOGIN / SIGNUP ============ -->
+<!-- ============ LOGIN / SIGNUP (OTP par e-mail) ============ -->
 <section class="page" id="page-login">
   <div class="auth-wrap">
     <div class="auth-card">
-      <h1 id="authTitle">Se connecter</h1>
-      <p class="sub" id="authSub">Accédez au tableau de bord de votre église.</p>
 
-      <div id="authError" style="display:none; background:#FBEFE0; color:#8A5A1B; font-size:13px; padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:14px;"></div>
+      <!-- Étape 1 : formulaire + envoi du code -->
+      <div id="authStepForm">
+        <h1 id="authTitle">Se connecter</h1>
+        <p class="sub" id="authSub">Recevez un code par e-mail pour accéder au tableau de bord de votre église.</p>
 
-      <div class="field" id="fieldFullName" style="display:none;">
-        <label>Votre nom</label>
-        <input type="text" id="authFullName" placeholder="Ex. Roosevelt Geffrard">
-      </div>
-      <div class="field" id="fieldChurchName" style="display:none;">
-        <label>Nom de l'église</label>
-        <input type="text" id="authChurchName" placeholder="Ex. Église Bethel Paris">
-      </div>
-      <div class="field">
-        <label>Adresse e-mail</label>
-        <input type="email" id="authEmail" placeholder="vous@eglise.org">
-      </div>
-      <div class="field">
-        <label>Mot de passe</label>
-        <input type="password" id="authPassword" placeholder="••••••••">
+        <div id="authError" style="display:none; background:#FBEFE0; color:#8A5A1B; font-size:13px; padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:14px;"></div>
+
+        <div class="field" id="fieldFullName" style="display:none;">
+          <label>Votre nom</label>
+          <input type="text" id="authFullName" placeholder="Ex. Roosevelt Geffrard">
+        </div>
+        <div class="field" id="fieldChurchName" style="display:none;">
+          <label>Nom de l'église</label>
+          <input type="text" id="authChurchName" placeholder="Ex. Église Bethel Paris">
+        </div>
+        <div class="field">
+          <label>Adresse e-mail</label>
+          <input type="email" id="authEmail" placeholder="vous@eglise.org">
+        </div>
+
+        <button class="btn btn-primary" id="authSubmitBtn" style="width:100%; justify-content:center;" onclick="sendOtpCode()">Recevoir le code</button>
+        <div class="auth-divider">ou</div>
+        <button class="btn btn-ghost" style="width:100%; justify-content:center;" onclick="showPage('join')">Rejoindre une session avec un lien</button>
+        <div class="auth-foot" id="authToggleWrap">Pas encore de compte église ? <a href="#" style="color:var(--violet-deep); font-weight:500;" onclick="toggleAuthMode(); return false;">Créer une église</a></div>
       </div>
 
-      <button class="btn btn-primary" id="authSubmitBtn" style="width:100%; justify-content:center;" onclick="handleAuthSubmit()">Se connecter</button>
-      <div class="auth-divider">ou</div>
-      <button class="btn btn-ghost" style="width:100%; justify-content:center;" onclick="showPage('join')">Rejoindre une session avec un lien</button>
-      <div class="auth-foot" id="authToggleWrap">Pas encore de compte église ? <a href="#" style="color:var(--violet-deep); font-weight:500;" onclick="toggleAuthMode(); return false;">Créer une église</a></div>
+      <!-- Étape 2 : saisie du code reçu -->
+      <div id="authStepCode" style="display:none;">
+        <h1>Entrez le code</h1>
+        <p class="sub">Un code à 6 chiffres a été envoyé à <strong id="authEmailDisplay"></strong>.</p>
+
+        <div id="authCodeError" style="display:none; background:#FBEFE0; color:#8A5A1B; font-size:13px; padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:14px;"></div>
+
+        <div class="field">
+          <label>Code reçu par e-mail</label>
+          <input type="text" id="authOtpCode" inputmode="numeric" maxlength="6" placeholder="000000" style="letter-spacing:4px; font-size:20px; text-align:center;">
+        </div>
+
+        <button class="btn btn-primary" id="authVerifyBtn" style="width:100%; justify-content:center;" onclick="verifyOtpCode()">Vérifier le code</button>
+        <div class="auth-foot">
+          <a href="#" style="color:var(--violet-deep); font-weight:500;" onclick="sendOtpCode(true); return false;">Renvoyer le code</a>
+          ·
+          <a href="#" style="color:var(--gray);" onclick="backToAuthForm(); return false;">Changer d'e-mail</a>
+        </div>
+      </div>
+
     </div>
   </div>
 </section>
+
 
 <!-- ============ JOIN (GUEST ACCESS) ============ -->
 <section class="page" id="page-join">
@@ -1184,17 +1206,20 @@ const SUPABASE_KEY = "sb_publishable_ScBbuN57vvE4lmtQp8UVuw_TDk0iv99";
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let authMode = 'login'; // 'login' | 'signup'
+let pendingEmail = ''; // e-mail en attente de vérification du code
+let pendingFullName = '';
+let pendingChurchName = '';
 
 function toggleAuthMode(){
   authMode = authMode === 'login' ? 'signup' : 'login';
   const isSignup = authMode === 'signup';
   document.getElementById('authTitle').textContent = isSignup ? 'Créer une église' : 'Se connecter';
   document.getElementById('authSub').textContent = isSignup
-    ? 'Créez le compte principal de votre église sur Upper Room.'
-    : 'Accédez au tableau de bord de votre église.';
+    ? 'Créez le compte principal de votre église — un code vous sera envoyé par e-mail.'
+    : 'Recevez un code par e-mail pour accéder au tableau de bord de votre église.';
   document.getElementById('fieldFullName').style.display = isSignup ? 'block' : 'none';
   document.getElementById('fieldChurchName').style.display = isSignup ? 'block' : 'none';
-  document.getElementById('authSubmitBtn').textContent = isSignup ? 'Créer mon église' : 'Se connecter';
+  document.getElementById('authSubmitBtn').textContent = isSignup ? 'Créer mon église' : 'Recevoir le code';
   document.getElementById('authToggleWrap').innerHTML = isSignup
     ? 'Déjà un compte ? <a href="#" style="color:var(--violet-deep); font-weight:500;" onclick="toggleAuthMode(); return false;">Se connecter</a>'
     : 'Pas encore de compte église ? <a href="#" style="color:var(--violet-deep); font-weight:500;" onclick="toggleAuthMode(); return false;">Créer une église</a>';
@@ -1209,61 +1234,66 @@ function showAuthError(msg){
 function hideAuthError(){
   document.getElementById('authError').style.display = 'none';
 }
+function showCodeError(msg){
+  const el = document.getElementById('authCodeError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideCodeError(){
+  document.getElementById('authCodeError').style.display = 'none';
+}
 
-async function handleAuthSubmit(){
+function backToAuthForm(){
+  document.getElementById('authStepCode').style.display = 'none';
+  document.getElementById('authStepForm').style.display = 'block';
+  document.getElementById('authOtpCode').value = '';
+  hideCodeError();
+}
+
+/* Étape 1 : envoie un code à 6 chiffres par e-mail */
+async function sendOtpCode(isResend){
   hideAuthError();
-  const email = document.getElementById('authEmail').value.trim();
-  const password = document.getElementById('authPassword').value;
+  const email = isResend ? pendingEmail : document.getElementById('authEmail').value.trim();
 
-  if(!email || !password){
-    showAuthError('Entrez un e-mail et un mot de passe.');
+  if(!email){
+    showAuthError('Entrez votre adresse e-mail.');
     return;
+  }
+
+  let fullName = pendingFullName, churchName = pendingChurchName;
+  if(!isResend && authMode === 'signup'){
+    fullName = document.getElementById('authFullName').value.trim();
+    churchName = document.getElementById('authChurchName').value.trim();
+    if(!fullName || !churchName){
+      showAuthError('Entrez votre nom et le nom de votre église.');
+      return;
+    }
   }
 
   const btn = document.getElementById('authSubmitBtn');
   const originalLabel = btn.textContent;
-  btn.textContent = 'Un instant…';
+  btn.textContent = 'Envoi du code…';
   btn.disabled = true;
 
   try{
-    if(authMode === 'signup'){
-      const fullName = document.getElementById('authFullName').value.trim();
-      const churchName = document.getElementById('authChurchName').value.trim();
-      if(!fullName || !churchName){
-        showAuthError('Entrez votre nom et le nom de votre église.');
-        return;
+    const { error } = await supabaseClient.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: authMode === 'signup',
+        data: authMode === 'signup' ? { full_name: fullName } : undefined
       }
+    });
+    if(error) throw error;
 
-      const { data, error } = await supabaseClient.auth.signUp({
-        email, password,
-        options: { data: { full_name: fullName } }
-      });
-      if(error) throw error;
+    pendingEmail = email;
+    pendingFullName = fullName;
+    pendingChurchName = churchName;
 
-      if(data.user){
-        const { data: church, error: churchError } = await supabaseClient
-          .from('churches')
-          .insert({ name: churchName })
-          .select()
-          .single();
-        if(churchError) throw churchError;
-
-        const { error: userUpdateError } = await supabaseClient
-          .from('users')
-          .update({ church_id: church.id, global_role: 'owner' })
-          .eq('id', data.user.id);
-        if(userUpdateError) throw userUpdateError;
-      }
-
-      toast('Compte créé — bienvenue sur Upper Room, ' + fullName);
-      showPage('dashboard');
-
-    } else {
-      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-      if(error) throw error;
-      toast('Connexion réussie');
-      showPage('dashboard');
-    }
+    document.getElementById('authEmailDisplay').textContent = email;
+    document.getElementById('authStepForm').style.display = 'none';
+    document.getElementById('authStepCode').style.display = 'block';
+    hideCodeError();
+    toast(isResend ? 'Nouveau code envoyé' : 'Code envoyé par e-mail');
   } catch(err){
     showAuthError(traduireErreurAuth(err.message));
   } finally {
@@ -1272,11 +1302,61 @@ async function handleAuthSubmit(){
   }
 }
 
+/* Étape 2 : vérifie le code saisi */
+async function verifyOtpCode(){
+  hideCodeError();
+  const code = document.getElementById('authOtpCode').value.trim();
+  if(code.length !== 6){
+    showCodeError('Le code doit contenir 6 chiffres.');
+    return;
+  }
+
+  const btn = document.getElementById('authVerifyBtn');
+  const originalLabel = btn.textContent;
+  btn.textContent = 'Vérification…';
+  btn.disabled = true;
+
+  try{
+    const { data, error } = await supabaseClient.auth.verifyOtp({
+      email: pendingEmail,
+      token: code,
+      type: 'email'
+    });
+    if(error) throw error;
+
+    // Si c'est une création d'église, on la crée maintenant que l'utilisateur est authentifié
+    if(authMode === 'signup' && data.user){
+      const { data: church, error: churchError } = await supabaseClient
+        .from('churches')
+        .insert({ name: pendingChurchName })
+        .select()
+        .single();
+      if(churchError) throw churchError;
+
+      const { error: userUpdateError } = await supabaseClient
+        .from('users')
+        .update({ church_id: church.id, global_role: 'owner' })
+        .eq('id', data.user.id);
+      if(userUpdateError) throw userUpdateError;
+
+      toast('Compte créé — bienvenue sur Upper Room, ' + pendingFullName);
+    } else {
+      toast('Connexion réussie');
+    }
+
+    showPage('dashboard');
+  } catch(err){
+    showCodeError(traduireErreurAuth(err.message));
+  } finally {
+    btn.textContent = originalLabel;
+    btn.disabled = false;
+  }
+}
+
 function traduireErreurAuth(message){
   if(!message) return "Une erreur est survenue. Réessayez.";
-  if(message.includes('Invalid login credentials')) return "E-mail ou mot de passe incorrect.";
-  if(message.includes('already registered')) return "Un compte existe déjà avec cet e-mail.";
-  if(message.includes('Password should be')) return "Le mot de passe doit contenir au moins 6 caractères.";
+  if(message.includes('Token has expired') || message.includes('invalid')) return "Code invalide ou expiré. Demandez-en un nouveau.";
+  if(message.includes('User already registered')) return "Un compte existe déjà avec cet e-mail — connectez-vous plutôt.";
   return message;
 }
 
@@ -1287,6 +1367,7 @@ async function checkExistingSession(){
   }
 }
 checkExistingSession();
+
 
 /* ---------- GUEST JOIN / END SESSION ---------- */
 function joinAsGuest(){
