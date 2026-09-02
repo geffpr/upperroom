@@ -666,7 +666,10 @@
           <div class="meta">Pasteur Roosevelt · Traduction FR → HT active · 6 participants</div>
         </div>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="leaveLiveKitRoom(); showPage('dashboard')">← Quitter la salle</button>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="copyShareLink()">🔗 Copier le lien</button>
+        <button class="btn btn-ghost btn-sm" onclick="leaveLiveKitRoom(); showPage('dashboard')">← Quitter la salle</button>
+      </div>
     </div>
 
     <div class="stage">
@@ -1497,6 +1500,41 @@ function joinAsGuest(){
   showPage('room');
   toast('Bienvenue ' + name + ' — vous avez rejoint en tant qu\'invité');
 }
+
+/* ---------- LIEN DE PARTAGE PAR SESSION ---------- */
+function getShareLink(){
+  const roomName = sessionStorage.getItem('upperroom_room_name') || DEMO_ROOM_NAME;
+  const title = document.getElementById('roomTitleTag') ? document.getElementById('roomTitleTag').textContent : '';
+  const url = new URL(window.location.origin + window.location.pathname);
+  url.searchParams.set('room', roomName);
+  if(title) url.searchParams.set('title', title);
+  return url.toString();
+}
+
+function copyShareLink(){
+  const link = getShareLink();
+  navigator.clipboard.writeText(link).then(() => {
+    toast('Lien copié : ' + link);
+  }).catch(() => {
+    prompt('Copiez ce lien pour inviter des participants :', link);
+  });
+}
+
+/* Au chargement : si l'URL contient ?room=..., on prépare la page "Rejoindre" pour cette session précise */
+(function handleIncomingRoomLink(){
+  const params = new URLSearchParams(window.location.search);
+  const room = params.get('room');
+  if(room){
+    sessionStorage.setItem('upperroom_room_name', room);
+    const title = params.get('title');
+    window.addEventListener('DOMContentLoaded', () => {
+      const sub = document.querySelector('#page-join .sub');
+      if(sub) sub.textContent = title ? ('Vous rejoignez : ' + title) : 'Vous rejoignez une session Upper Room.';
+      showPage('join');
+    });
+  }
+})();
+
 function endSession(){
   leaveLiveKitRoom();
   showPage('recap');
