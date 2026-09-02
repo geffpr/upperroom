@@ -722,16 +722,8 @@
         <div class="panel-view active" id="tab-chat">
           <div class="chat-messages" id="chatMessages">
             <div class="msg">
-              <div class="who">Magda</div>
-              <div class="bubble">Bonsoir tout le monde 🙏</div>
-            </div>
-            <div class="msg">
-              <div class="who">Samuel</div>
-              <div class="bubble">La traduction créole fonctionne très bien ce soir</div>
-            </div>
-            <div class="msg">
               <div class="who">Système</div>
-              <div class="bubble">📖 Jean 3:16 a été partagé par Roosevelt</div>
+              <div class="bubble">Vous avez rejoint la salle. Le chat est vide pour l'instant.</div>
             </div>
           </div>
           <div class="chat-input">
@@ -1106,10 +1098,12 @@ async function initCamera(){
       } else if(track.kind === 'audio'){
         track.attach();
       }
+      upsertPerson(participant.identity, participant.name || participant.identity, 'Membre');
     });
 
     liveKitRoom.on(RoomEvent.ParticipantDisconnected, (participant) => {
       removeRemoteTile(participant);
+      removePerson(participant.identity);
     });
 
     liveKitRoom.on(RoomEvent.Disconnected, () => {
@@ -1126,6 +1120,7 @@ async function initCamera(){
     });
 
     document.getElementById('roomStatus').textContent = '';
+    upsertPerson('local-' + identity, displayName + ' (vous)', 'Enseignant');
     toast('Connecté à la salle en direct ✅');
 
   }catch(err){
@@ -1143,6 +1138,8 @@ function leaveLiveKitRoom(){
     liveKitRoom = null;
     cameraInitialized = false;
     document.getElementById('videoGrid').querySelectorAll('.tile:not(#localTile)').forEach(t => t.remove());
+    people = [];
+    renderPeople();
   }
 }
 
@@ -1258,24 +1255,39 @@ function switchTab(name){
 }
 document.querySelectorAll('.tabs button').forEach(b=> b.addEventListener('click', ()=>switchTab(b.dataset.tab)));
 
-/* ---------- PEOPLE LIST ---------- */
-const people = [
-  {name:'Roosevelt', role:'Enseignant', color:'#6D4AFF', mic:true, hand:false},
-  {name:'Magda', role:'Membre', color:'#EF4444', mic:true, hand:false},
-  {name:'Samuel', role:'Membre', color:'#F59E0B', mic:false, hand:false},
-  {name:'Nadège', role:'Membre', color:'#10B981', mic:true, hand:true},
-  {name:'Jean-Paul', role:'Membre', color:'#3B82F6', mic:false, hand:false},
-  {name:'Ruth', role:'Modératrice', color:'#EC4899', mic:true, hand:false}
-];
+/* ---------- PEOPLE LIST (synchronisée avec les vrais participants LiveKit) ---------- */
+let people = [];
+
 function renderPeople(){
   const wrap = document.getElementById('peopleList');
+  if(people.length === 0){
+    wrap.innerHTML = `<p style="padding:16px; font-size:13px; color:var(--gray);">En attente d'autres participants…</p>`;
+    return;
+  }
   wrap.innerHTML = people.map(p=>`
     <div class="prow">
-      <div class="av" style="background:${p.color}">${p.name[0]}</div>
+      <div class="av" style="background:${p.color}">${p.name[0].toUpperCase()}</div>
       <div><div class="name">${p.name}</div><div class="role">${p.role}</div></div>
       <div class="flags">${p.hand?'✋':''} ${p.mic?'🎙️':'🔇'}</div>
     </div>`).join('');
 }
+
+function upsertPerson(identity, name, role){
+  const existing = people.find(p => p.identity === identity);
+  const palette = ['#6D4AFF','#EF4444','#F59E0B','#10B981','#3B82F6','#EC4899'];
+  if(existing){
+    existing.name = name;
+  } else {
+    people.push({identity, name, role: role || 'Membre', color: palette[people.length % palette.length], mic:true, hand:false});
+  }
+  renderPeople();
+}
+
+function removePerson(identity){
+  people = people.filter(p => p.identity !== identity);
+  renderPeople();
+}
+
 renderPeople();
 
 /* ---------- CHAT ---------- */

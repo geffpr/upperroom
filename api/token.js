@@ -1,9 +1,8 @@
-const { AccessToken } = require('livekit-server-sdk');
-
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-
   try {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    const { AccessToken } = require('livekit-server-sdk');
+
     const room = (req.query.room || '').toString().trim();
     const identity = (req.query.identity || '').toString().trim();
     const name = (req.query.name || identity).toString().trim();
