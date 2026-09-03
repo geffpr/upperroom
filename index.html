@@ -446,7 +446,7 @@
       <button id="lang-en">EN</button>
     </div>
     <button class="btn btn-ghost btn-sm" onclick="showPage('join')">Rejoindre avec un lien</button>
-    <button class="btn btn-primary btn-sm" onclick="showPage('login')">Se connecter</button>
+    <button class="btn btn-primary btn-sm" id="navAuthBtn" onclick="showPage('login')">Se connecter</button>
   </div>
 </nav>
 
@@ -462,6 +462,25 @@
       <div class="field" id="fieldFullName" style="display:none;">
         <label>Votre nom</label>
         <input type="text" id="authFullName" placeholder="Ex. Roosevelt Geffrard">
+      </div>
+      <div class="field" id="fieldGenderTitle" style="display:none;">
+        <label>Vous êtes</label>
+        <div style="display:flex; gap:8px;">
+          <select id="authGender" style="flex:1; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:11px 13px; font-size:14px; background:var(--bg); font-family:inherit;">
+            <option value="">Genre…</option>
+            <option value="homme">Un frère</option>
+            <option value="femme">Une sœur</option>
+          </select>
+          <select id="authTitle2" style="flex:1; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:11px 13px; font-size:14px; background:var(--bg); font-family:inherit;">
+            <option value="membre">Membre</option>
+            <option value="pasteur">Pasteur(e)</option>
+            <option value="diacre">Diacre / Diaconesse</option>
+            <option value="prophete">Prophète(esse)</option>
+            <option value="docteur">Docteur(e)</option>
+            <option value="evangeliste">Évangéliste</option>
+            <option value="ancien">Ancien(ne)</option>
+          </select>
+        </div>
       </div>
       <div class="field" id="fieldChurchName" style="display:none;">
         <label>Nom de l'église</label>
@@ -1860,6 +1879,7 @@ function toggleAuthMode(){
     ? 'Créez le compte principal de votre église sur Upper Room.'
     : 'Accédez au tableau de bord de votre église.';
   document.getElementById('fieldFullName').style.display = isSignup ? 'block' : 'none';
+  document.getElementById('fieldGenderTitle').style.display = isSignup ? 'block' : 'none';
   document.getElementById('fieldChurchName').style.display = isSignup ? 'block' : 'none';
   document.getElementById('authSubmitBtn').textContent = isSignup ? 'Créer mon église' : 'Se connecter';
   document.getElementById('authToggleWrap').innerHTML = isSignup
@@ -1896,8 +1916,14 @@ async function handleAuthSubmit(){
     if(authMode === 'signup'){
       const fullName = document.getElementById('authFullName').value.trim();
       const churchName = document.getElementById('authChurchName').value.trim();
+      const gender = document.getElementById('authGender').value;
+      const title = document.getElementById('authTitle2').value;
       if(!fullName || !churchName){
         showAuthError('Entrez votre nom et le nom de votre église.');
+        return;
+      }
+      if(!gender){
+        showAuthError('Précisez si le compte est celui d\'un frère ou d\'une sœur.');
         return;
       }
 
@@ -1923,19 +1949,23 @@ async function handleAuthSubmit(){
 
         const { error: userUpdateError } = await supabaseClient
           .from('users')
-          .update({ church_id: church.id, global_role: 'owner' })
+          .update({ church_id: church.id, global_role: 'owner', gender, title })
           .eq('id', data.user.id);
         if(userUpdateError) throw userUpdateError;
       }
 
+      isDevMode = false;
       toast('Compte créé — bienvenue sur Upper Room, ' + fullName);
       showPage('dashboard');
+      updateNavAuthState();
 
     } else {
       const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
       if(error) throw error;
+      isDevMode = false;
       toast('Connexion réussie');
       showPage('dashboard');
+      updateNavAuthState();
     }
   } catch(err){
     showAuthError(traduireErreurAuth(err.message));
@@ -1996,6 +2026,47 @@ let currentUser = null;
 let currentChurch = null;
 let isSessionHost = false; // seul l'orateur désigné (celui qui a lancé la session) est transcrit automatiquement
 
+const TITLE_LABELS = {
+  membre:      { homme: 'Frère',      femme: 'Sœur' },
+  pasteur:     { homme: 'Pasteur',    femme: 'Pasteure' },
+  diacre:      { homme: 'Diacre',     femme: 'Diaconesse' },
+  prophete:    { homme: 'Prophète',   femme: 'Prophétesse' },
+  docteur:     { homme: 'Docteur',    femme: 'Docteure' },
+  evangeliste: { homme: 'Évangéliste',femme: 'Évangéliste' },
+  ancien:      { homme: 'Ancien',     femme: 'Ancienne' }
+};
+
+function buildGreetingName(userRow){
+  const firstName = (userRow.full_name || 'vous').split(' ')[0];
+  if(!userRow.gender) return firstName;
+  const labels = TITLE_LABELS[userRow.title] || TITLE_LABELS.membre;
+  const titleLabel = labels[userRow.gender] || '';
+  return titleLabel ? (titleLabel + ' ' + firstName) : firstName;
+}
+
+/* Reflète le vrai état de connexion dans la barre de navigation (nom au lieu de "Se connecter") */
+async function updateNavAuthState(){
+  const btn = document.getElementById('navAuthBtn');
+  if(isDevMode){
+    btn.textContent = 'Se connecter';
+    btn.onclick = () => showPage('login');
+    return;
+  }
+  const { data: sessionData } = await supabaseClient.auth.getSession();
+  if(!sessionData.session){
+    btn.textContent = 'Se connecter';
+    btn.onclick = () => showPage('login');
+    return;
+  }
+  let userRow = currentUser;
+  if(!userRow || userRow.id !== sessionData.session.user.id){
+    const { data } = await supabaseClient.from('users').select('*').eq('id', sessionData.session.user.id).single();
+    userRow = data;
+  }
+  btn.textContent = userRow ? buildGreetingName(userRow) : 'Mon compte';
+  btn.onclick = () => showPage('dashboard');
+}
+
 async function loadDashboardContext(){
   if(isDevMode){
     document.getElementById('dashGreeting').textContent = 'Bonjour 👋';
@@ -2018,8 +2089,9 @@ async function loadDashboardContext(){
     return;
   }
   currentUser = userRow;
+  updateNavAuthState();
 
-  document.getElementById('dashGreeting').textContent = 'Bonjour, ' + (userRow.full_name || 'vous').split(' ')[0] + ' 👋';
+  document.getElementById('dashGreeting').textContent = 'Bonjour ' + buildGreetingName(userRow) + ' 👋';
 
   if(!userRow.church_id){
     document.getElementById('dashSubtitle').textContent = 'Aucune église associée à ce compte pour l\'instant';
@@ -2293,6 +2365,7 @@ async function checkExistingSession(){
   }
 }
 checkExistingSession();
+updateNavAuthState();
 
 
 
