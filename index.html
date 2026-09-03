@@ -637,6 +637,56 @@
   </div>
 </section>
 
+<!-- ============ MON COMPTE ============ -->
+<section class="page" id="page-account">
+  <div class="auth-wrap" style="max-width:460px;">
+    <div class="auth-card">
+      <h1>Mon compte</h1>
+      <p class="sub" id="accountSub">Chargement…</p>
+
+      <div id="accountError" style="display:none; background:#FBEFE0; color:#8A5A1B; font-size:13px; padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:14px;"></div>
+
+      <div class="field">
+        <label>Adresse e-mail</label>
+        <input type="email" id="accountEmail" disabled style="opacity:.6;">
+      </div>
+      <div class="field">
+        <label>Votre nom</label>
+        <input type="text" id="accountFullName">
+      </div>
+      <div class="field">
+        <label>Vous êtes</label>
+        <div style="display:flex; gap:8px;">
+          <select id="accountGender" style="flex:1; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:11px 13px; font-size:14px; background:var(--bg); font-family:inherit;">
+            <option value="">Genre…</option>
+            <option value="homme">Un frère</option>
+            <option value="femme">Une sœur</option>
+          </select>
+          <select id="accountTitle" style="flex:1; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:11px 13px; font-size:14px; background:var(--bg); font-family:inherit;">
+            <option value="membre">Membre</option>
+            <option value="pasteur">Pasteur(e)</option>
+            <option value="diacre">Diacre / Diaconesse</option>
+            <option value="prophete">Prophète(esse)</option>
+            <option value="docteur">Docteur(e)</option>
+            <option value="evangeliste">Évangéliste</option>
+            <option value="ancien">Ancien(ne)</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Nouveau mot de passe <span style="color:var(--gray); font-weight:400;">(laisser vide pour ne pas changer)</span></label>
+        <input type="password" id="accountNewPassword" placeholder="••••••••">
+      </div>
+
+      <button class="btn btn-primary" style="width:100%; justify-content:center;" onclick="saveAccountChanges()">Enregistrer</button>
+
+      <div style="margin-top:22px; padding-top:18px; border-top:1px solid var(--gray-line);">
+        <button class="btn btn-ghost" style="width:100%; justify-content:center;" onclick="logout()">Se déconnecter</button>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ============ CRÉER UNE ÉTUDE ============ -->
 <section class="page" id="page-create-session">
   <div class="auth-wrap" style="max-width:460px;">
@@ -947,6 +997,7 @@ function showPage(id){
   if(id==='dashboard'){ loadDashboardContext(); }
   if(id==='library'){ loadLibrary(); }
   if(id==='members'){ loadMembers(); }
+  if(id==='account'){ loadAccountPage(); }
 }
 document.querySelectorAll('.navlinks button').forEach(b=>b.addEventListener('click', ()=>showPage(b.dataset.page)));
 
@@ -2064,7 +2115,100 @@ async function updateNavAuthState(){
     userRow = data;
   }
   btn.textContent = userRow ? buildGreetingName(userRow) : 'Mon compte';
-  btn.onclick = () => showPage('dashboard');
+  btn.onclick = () => showPage('account');
+}
+
+/* ---------- MON COMPTE ---------- */
+async function loadAccountPage(){
+  hideAccountError();
+  document.getElementById('accountSub').textContent = 'Chargement…';
+
+  if(isDevMode){
+    document.getElementById('accountSub').textContent = 'Mode démonstration — connectez-vous avec un vrai compte pour gérer votre profil.';
+    return;
+  }
+
+  const { data: sessionData } = await supabaseClient.auth.getSession();
+  if(!sessionData.session){
+    showPage('login');
+    return;
+  }
+
+  const { data: userRow, error } = await supabaseClient
+    .from('users').select('*').eq('id', sessionData.session.user.id).single();
+  if(error || !userRow){
+    document.getElementById('accountSub').textContent = "Impossible de charger votre profil.";
+    return;
+  }
+  currentUser = userRow;
+
+  document.getElementById('accountSub').textContent = 'Gérez vos informations personnelles.';
+  document.getElementById('accountEmail').value = sessionData.session.user.email || '';
+  document.getElementById('accountFullName').value = userRow.full_name || '';
+  document.getElementById('accountGender').value = userRow.gender || '';
+  document.getElementById('accountTitle').value = userRow.title || 'membre';
+  document.getElementById('accountNewPassword').value = '';
+}
+
+function showAccountError(msg){
+  const el = document.getElementById('accountError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideAccountError(){
+  document.getElementById('accountError').style.display = 'none';
+}
+
+async function saveAccountChanges(){
+  hideAccountError();
+  if(!currentUser){ showAccountError('Profil non chargé.'); return; }
+
+  const fullName = document.getElementById('accountFullName').value.trim();
+  const gender = document.getElementById('accountGender').value;
+  const title = document.getElementById('accountTitle').value;
+  const newPassword = document.getElementById('accountNewPassword').value;
+
+  if(!fullName){ showAccountError('Le nom ne peut pas être vide.'); return; }
+
+  const { error: updateError } = await supabaseClient
+    .from('users')
+    .update({ full_name: fullName, gender: gender || null, title })
+    .eq('id', currentUser.id);
+
+  if(updateError){
+    showAccountError('Erreur lors de la mise à jour du profil.');
+    console.error(updateError);
+    return;
+  }
+
+  if(newPassword){
+    if(newPassword.length < 6){
+      showAccountError('Le nouveau mot de passe doit contenir au moins 6 caractères (profil déjà enregistré).');
+      return;
+    }
+    const { error: pwError } = await supabaseClient.auth.updateUser({ password: newPassword });
+    if(pwError){
+      showAccountError('Profil enregistré, mais le mot de passe n\'a pas pu être changé : ' + pwError.message);
+      return;
+    }
+  }
+
+  toast('Profil mis à jour');
+  document.getElementById('accountNewPassword').value = '';
+  currentUser.full_name = fullName;
+  currentUser.gender = gender || null;
+  currentUser.title = title;
+  updateNavAuthState();
+}
+
+async function logout(){
+  await supabaseClient.auth.signOut();
+  currentUser = null;
+  currentChurch = null;
+  isDevMode = false;
+  updateNavAuthState();
+  toast('Vous êtes déconnecté');
+  showPage('landing');
 }
 
 async function loadDashboardContext(){
