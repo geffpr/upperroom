@@ -840,43 +840,12 @@
         <div class="page-inner-head">
           <div>
             <h1>Programmes d'étude</h1>
-            <p>Parcours réutilisables sur plusieurs semaines</p>
+            <p id="libraryChurchName">Parcours réutilisables sur plusieurs semaines</p>
           </div>
-          <button class="btn btn-primary btn-sm">+ Nouveau programme</button>
+          <button class="btn btn-primary btn-sm" onclick="createStudyProgram()">+ Nouveau programme</button>
         </div>
-        <div class="table-wrap">
-          <div class="trow">
-            <div class="av" style="background:#6D4AFF;">JN</div>
-            <div class="main">
-              <div class="t">Évangile de Jean — Parcours en 12 semaines</div>
-              <div class="m">Semaine 3 sur 12 · Enseignant : Roosevelt</div>
-            </div>
-            <span class="pill-status ok">En cours</span>
-          </div>
-          <div class="trow">
-            <div class="av" style="background:#D97757;">JA</div>
-            <div class="main">
-              <div class="t">Jeunes adultes — Fondements de la foi</div>
-              <div class="m">6 semaines · Enseignant : David</div>
-            </div>
-            <span class="pill-status ok">En cours</span>
-          </div>
-          <div class="trow">
-            <div class="av" style="background:#3B7A57;">EB</div>
-            <div class="main">
-              <div class="t">École biblique — Niveau 1</div>
-              <div class="m">Module 4 sur 8 · 8 enseignants</div>
-            </div>
-            <span class="pill-status warn">En pause</span>
-          </div>
-          <div class="trow">
-            <div class="av" style="background:#8A5A1B;">FM</div>
-            <div class="main">
-              <div class="t">Groupe de prière — Femmes</div>
-              <div class="m">Programme terminé · 8 semaines</div>
-            </div>
-            <span class="pill-status warn">Archivé</span>
-          </div>
+        <div class="table-wrap" id="libraryListContainer">
+          <p style="padding:14px 18px; font-size:13px; color:var(--gray);">Chargement…</p>
         </div>
       </div>
     </div>
@@ -892,53 +861,22 @@
       <a onclick="showPage('library')">Bibliothèque</a>
       <a class="active">Membres</a>
       <div class="section-label">Groupes</div>
-      <a>Jeunesse</a>
-      <a>Femmes</a>
-      <a>Cellules de maison</a>
-      <a style="color:var(--violet-deep);">+ Nouveau groupe</a>
+      <div id="subgroupsSidebarList" style="display:flex; flex-direction:column; gap:2px;">
+        <p style="font-size:12.5px; color:var(--gray); padding:9px 12px;">Chargement…</p>
+      </div>
+      <a style="color:var(--violet-deep);" onclick="createSubgroup()">+ Nouveau groupe</a>
     </div>
     <div class="shell-main">
       <div class="page-inner">
         <div class="page-inner-head">
           <div>
             <h1>Membres</h1>
-            <p>212 membres · présence suivie automatiquement</p>
+            <p id="membersSubtitle">Chargement…</p>
           </div>
-          <button class="btn btn-primary btn-sm">+ Inviter un membre</button>
+          <button class="btn btn-primary btn-sm" onclick="toast('L\'invitation par e-mail arrive bientôt — pour l\'instant, partagez le lien de connexion directement.')">+ Inviter un membre</button>
         </div>
-        <div class="filter-row">
-          <button class="active">Tous</button>
-          <button>Jeunesse</button>
-          <button>Femmes</button>
-          <button>Cellules de maison</button>
-          <button>Inactifs 3+ semaines</button>
-        </div>
-        <div class="table-wrap">
-          <div class="trow">
-            <div class="av" style="background:#6D4AFF;">M</div>
-            <div class="main"><div class="t">Magda Pierre</div><div class="m">Présente à 9 des 10 dernières études</div></div>
-            <span class="pill-status ok">Actif</span>
-          </div>
-          <div class="trow">
-            <div class="av" style="background:#F59E0B;">S</div>
-            <div class="main"><div class="t">Samuel Louis</div><div class="m">Présent à 7 des 10 dernières études</div></div>
-            <span class="pill-status ok">Actif</span>
-          </div>
-          <div class="trow">
-            <div class="av" style="background:#10B981;">N</div>
-            <div class="main"><div class="t">Nadège Charles</div><div class="m">Groupe Femmes · a levé la main 4 fois</div></div>
-            <span class="pill-status ok">Actif</span>
-          </div>
-          <div class="trow">
-            <div class="av" style="background:#3B82F6;">JP</div>
-            <div class="main"><div class="t">Jean-Paul Michel</div><div class="m">Absent depuis 3 semaines</div></div>
-            <span class="pill-status warn">À recontacter</span>
-          </div>
-          <div class="trow">
-            <div class="av" style="background:#EC4899;">R</div>
-            <div class="main"><div class="t">Ruth Joseph</div><div class="m">Modératrice · Cellules de maison</div></div>
-            <span class="pill-status ok">Actif</span>
-          </div>
+        <div class="table-wrap" id="membersListContainer">
+          <p style="padding:14px 18px; font-size:13px; color:var(--gray);">Chargement…</p>
         </div>
       </div>
     </div>
@@ -988,6 +926,8 @@ function showPage(id){
   window.scrollTo({top:0, behavior:'instant'});
   if(id==='room' && !cameraInitialized){ initCamera(); }
   if(id==='dashboard'){ loadDashboardContext(); }
+  if(id==='library'){ loadLibrary(); }
+  if(id==='members'){ loadMembers(); }
 }
 document.querySelectorAll('.navlinks button').forEach(b=>b.addEventListener('click', ()=>showPage(b.dataset.page)));
 
@@ -1279,6 +1219,23 @@ function isFreePlan(){
   return !currentChurch || currentChurch.plan === 'free';
 }
 
+/* Enregistre une vraie présence uniquement pour une vraie session (identifiant Supabase, pas la salle de démo) */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function recordAttendanceIfRealSession(roomName, displayName){
+  if(!UUID_REGEX.test(roomName)) return; // salle de démo ou lien partagé sans session réelle en base
+
+  const { error } = await supabaseClient
+    .from('session_participants')
+    .insert({
+      session_id: roomName,
+      user_id: (currentUser && !isDevMode) ? currentUser.id : null,
+      guest_name: (currentUser && !isDevMode) ? null : displayName,
+      role: isSessionHost ? 'teacher' : 'member'
+    });
+
+  if(error) console.error('Erreur enregistrement présence:', error);
+}
+
 function startPlanEnforcement(){
   clearPlanEnforcementTimers();
   sessionTimerWarned = false;
@@ -1547,6 +1504,7 @@ async function initCamera(){
     upsertPerson('local-' + identity, displayName + ' (vous)', isSessionHost ? 'Enseignant' : 'Membre');
     toast('Connecté à la salle en direct ✅');
     startPlanEnforcement();
+    recordAttendanceIfRealSession(roomName, displayName);
 
     if(isSessionHost){
       const canUseAi = await canUseAiFeaturesThisSession();
@@ -2115,6 +2073,158 @@ async function loadSessionsList(){
         </button>
       </div>`;
   }).join('');
+}
+
+/* ---------- BIBLIOTHÈQUE (study_programs) ---------- */
+async function loadLibrary(){
+  const container = document.getElementById('libraryListContainer');
+  if(isDevMode || !currentChurch){
+    document.getElementById('libraryChurchName').textContent = 'Connectez-vous avec un vrai compte pour voir votre bibliothèque.';
+    container.innerHTML = '';
+    return;
+  }
+
+  document.getElementById('libraryChurchName').textContent = 'Parcours réutilisables sur plusieurs semaines — ' + currentChurch.name;
+
+  const { data: programs, error } = await supabaseClient
+    .from('study_programs')
+    .select('*')
+    .eq('church_id', currentChurch.id)
+    .order('created_at', { ascending: false });
+
+  if(error){
+    container.innerHTML = `<p style="padding:14px 18px; font-size:13px; color:var(--gray);">Erreur de chargement.</p>`;
+    return;
+  }
+
+  if(programs.length === 0){
+    container.innerHTML = `<p style="padding:14px 18px; font-size:13px; color:var(--gray);">Aucun programme pour l'instant — cliquez sur "+ Nouveau programme" pour commencer.</p>`;
+    return;
+  }
+
+  const statusLabels = { active: ['ok','En cours'], paused: ['warn','En pause'], archived: ['warn','Archivé'] };
+  const palette = ['#6D4AFF','#D97757','#3B7A57','#8A5A1B','#3B82F6'];
+
+  container.innerHTML = programs.map((p, i) => {
+    const initials = p.title.split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase();
+    const [statusClass, statusLabel] = statusLabels[p.status] || ['ok', p.status];
+    return `
+      <div class="trow">
+        <div class="av" style="background:${palette[i % palette.length]};">${initials}</div>
+        <div class="main">
+          <div class="t">${p.title}</div>
+          <div class="m">${p.total_weeks ? p.total_weeks + ' semaines' : 'Durée non précisée'}</div>
+        </div>
+        <span class="pill-status ${statusClass}">${statusLabel}</span>
+      </div>`;
+  }).join('');
+}
+
+async function createStudyProgram(){
+  if(isDevMode || !currentUser || !currentChurch){
+    toast('Connectez-vous avec un vrai compte pour créer un programme');
+    return;
+  }
+  const title = prompt('Titre du programme (ex. "Évangile de Jean — 12 semaines") :');
+  if(!title || !title.trim()) return;
+  const weeksRaw = prompt('Sur combien de semaines ? (laissez vide si non précisé)');
+  const totalWeeks = weeksRaw && !isNaN(parseInt(weeksRaw,10)) ? parseInt(weeksRaw,10) : null;
+
+  const { error } = await supabaseClient
+    .from('study_programs')
+    .insert({ church_id: currentChurch.id, title: title.trim(), total_weeks: totalWeeks, status: 'active' });
+
+  if(error){
+    console.error('Erreur création programme:', error);
+    toast('Erreur lors de la création du programme');
+    return;
+  }
+  toast('Programme créé');
+  loadLibrary();
+}
+
+/* ---------- MEMBRES (users + subgroups + présence réelle) ---------- */
+async function loadMembers(){
+  const listContainer = document.getElementById('membersListContainer');
+  const sidebarContainer = document.getElementById('subgroupsSidebarList');
+
+  if(isDevMode || !currentChurch){
+    document.getElementById('membersSubtitle').textContent = 'Connectez-vous avec un vrai compte pour voir vos membres.';
+    listContainer.innerHTML = '';
+    sidebarContainer.innerHTML = '';
+    return;
+  }
+
+  const [{ data: members, error: membersError }, { data: subgroups }] = await Promise.all([
+    supabaseClient.from('users').select('*').eq('church_id', currentChurch.id),
+    supabaseClient.from('subgroups').select('*').eq('church_id', currentChurch.id)
+  ]);
+
+  sidebarContainer.innerHTML = (subgroups && subgroups.length)
+    ? subgroups.map(g => `<a>${g.name}</a>`).join('')
+    : `<p style="font-size:12.5px; color:var(--gray); padding:9px 12px;">Aucun groupe pour l'instant</p>`;
+
+  if(membersError){
+    listContainer.innerHTML = `<p style="padding:14px 18px; font-size:13px; color:var(--gray);">Erreur de chargement.</p>`;
+    return;
+  }
+
+  document.getElementById('membersSubtitle').textContent =
+    members.length + ' membre' + (members.length !== 1 ? 's' : '') + ' · ' + currentChurch.name;
+
+  if(members.length === 0){
+    listContainer.innerHTML = `<p style="padding:14px 18px; font-size:13px; color:var(--gray);">Aucun membre pour l'instant.</p>`;
+    return;
+  }
+
+  // Présence réelle : combien de sessions distinctes chaque membre a rejointes dans cette église
+  const { data: attendanceRows } = await supabaseClient
+    .from('session_participants')
+    .select('user_id, session_id, sessions!inner(church_id)')
+    .eq('sessions.church_id', currentChurch.id);
+
+  const attendanceCount = {};
+  (attendanceRows || []).forEach(row => {
+    if(!row.user_id) return;
+    attendanceCount[row.user_id] = attendanceCount[row.user_id] || new Set();
+    attendanceCount[row.user_id].add(row.session_id);
+  });
+
+  const palette = ['#6D4AFF','#F59E0B','#10B981','#3B82F6','#EC4899'];
+  listContainer.innerHTML = members.map((m, i) => {
+    const count = attendanceCount[m.id] ? attendanceCount[m.id].size : 0;
+    const roleLabel = m.global_role === 'owner' ? 'Propriétaire' : m.global_role === 'teacher' ? 'Enseignant' : m.global_role === 'moderator' ? 'Modérateur' : 'Membre';
+    return `
+      <div class="trow">
+        <div class="av" style="background:${palette[i % palette.length]};">${(m.full_name||'?')[0].toUpperCase()}</div>
+        <div class="main">
+          <div class="t">${m.full_name || 'Sans nom'}</div>
+          <div class="m">${roleLabel} · ${count} étude${count !== 1 ? 's' : ''} rejointe${count !== 1 ? 's' : ''}</div>
+        </div>
+        <span class="pill-status ok">Actif</span>
+      </div>`;
+  }).join('');
+}
+
+async function createSubgroup(){
+  if(isDevMode || !currentChurch){
+    toast('Connectez-vous avec un vrai compte pour créer un groupe');
+    return;
+  }
+  const name = prompt('Nom du groupe (ex. "Jeunesse", "Femmes"...) :');
+  if(!name || !name.trim()) return;
+
+  const { error } = await supabaseClient
+    .from('subgroups')
+    .insert({ church_id: currentChurch.id, name: name.trim() });
+
+  if(error){
+    console.error('Erreur création groupe:', error);
+    toast('Erreur lors de la création du groupe');
+    return;
+  }
+  toast('Groupe créé');
+  loadMembers();
 }
 
 function joinRealSession(sessionId, title, asHost){
