@@ -2398,7 +2398,13 @@ async function loadSessionsList(){
   const tz = (currentUser && currentUser.timezone) || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const tzShort = new Intl.DateTimeFormat('fr-FR', { timeZoneName: 'short', timeZone: tz }).formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value || '';
 
-  container.innerHTML = sessions.map(s => {
+  const deleteBarHtml = `
+    <div id="deleteSelectionBar" style="display:none; padding:10px 12px; background:var(--sand); border-radius:var(--radius-sm); margin-bottom:10px; align-items:center; justify-content:space-between;">
+      <span id="deleteSelectionCount" style="font-size:13px;"></span>
+      <button class="btn btn-primary btn-sm" style="background:#B91C1C;" onclick="deleteSelectedSessions()">🗑️ Supprimer</button>
+    </div>`;
+
+  const rowsHtml = sessions.map(s => {
     const isLive = s.status === 'live';
     const isScheduled = s.status === 'scheduled';
     const isEnded = s.status === 'ended';
@@ -2422,12 +2428,15 @@ async function loadSessionsList(){
         ? `<button class="btn btn-violet btn-sm" data-action="start" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">Démarrer</button>`
         : `<button class="btn btn-ghost btn-sm" data-action="join" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">Ouvrir</button>`;
     }
-    // isEnded : aucun bouton d'action pour l'instant (pas de replay tant que l'enregistrement n'existe pas)
+    if(isCreator && !isLive){
+      actionButtons += `<button class="btn btn-ghost btn-sm" data-action="edit" data-id="${s.id}">✏️</button>`;
+    }
 
     return `
       <div class="study-row">
+        ${isCreator ? `<input type="checkbox" class="session-select-checkbox" data-id="${s.id}" style="margin-right:2px;">` : '<span style="width:16px;"></span>'}
         ${isLive ? '<span class="live-dot"></span>' : ''}
-        <div class="study-info">
+        <div class="study-info" data-action="participants" data-id="${s.id}" data-title="${escapeHtml(s.title)}" style="cursor:pointer;">
           <div class="t">${escapeHtml(s.title)}</div>
           <div class="m">${statusLabel}</div>
         </div>
@@ -2435,8 +2444,27 @@ async function loadSessionsList(){
       </div>`;
   }).join('');
 
+  container.innerHTML = deleteBarHtml + rowsHtml;
+
+  function updateDeleteBar(){
+    const checked = container.querySelectorAll('.session-select-checkbox:checked');
+    const bar = document.getElementById('deleteSelectionBar');
+    if(checked.length > 0){
+      bar.style.display = 'flex';
+      document.getElementById('deleteSelectionCount').textContent = checked.length + ' étude' + (checked.length !== 1 ? 's' : '') + ' sélectionnée' + (checked.length !== 1 ? 's' : '');
+    } else {
+      bar.style.display = 'none';
+    }
+  }
+  container.querySelectorAll('.session-select-checkbox').forEach(cb => cb.addEventListener('change', updateDeleteBar));
+
+  container.querySelectorAll('[data-action="participants"]').forEach(el => {
+    el.addEventListener('click', () => showSessionParticipants(el.dataset.id, el.dataset.title));
+  });
+
   container.querySelectorAll('button[data-action]').forEach(btn => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
       const id = btn.dataset.id;
       const title = btn.dataset.title;
       const code = btn.dataset.code;
@@ -2460,9 +2488,95 @@ async function loadSessionsList(){
         if(error){ toast('Erreur lors de la clôture de la session'); return; }
         toast('Session terminée');
         loadSessionsList();
+      } else if(btn.dataset.action === 'edit'){
+        openEditSessionModal(sessions.find(s => s.id === id));
       }
     });
   });
+}
+
+async function deleteSelectedSessions(){
+  const ids = Array.from(document.querySelectorAll('.session-select-checkbox:checked')).map(cb => cb.dataset.id);
+  if(ids.length === 0) return;
+  if(!confirm('Supprimer définitivement ' + ids.length + ' étude(s) ? Cette action est irréversible.')) return;
+
+  const { error } = await supabaseClient.from('sessions').delete().in('id', ids);
+  if(error){
+    console.error('Erreur suppression:', error);
+    toast('Erreur lors de la suppression');
+    return;
+  }
+  toast(ids.length + ' étude(s) supprimée(s)');
+  loadSessionsList();
+}
+
+/* ---------- MODIFIER UNE ÉTUDE ---------- */
+function openEditSessionModal(session){
+  if(!session) return;
+  const newTitle = prompt('Titre de l\'étude :', session.title);
+  if(newTitle === null) return; // annulé
+  if(!newTitle.trim()){ toast('Le titre ne peut pas être vide'); return; }
+
+  let newScheduledAt = session.scheduled_at;
+  if(session.status === 'scheduled'){
+    const currentLocal = session.scheduled_at ? new Date(session.scheduled_at).toISOString().slice(0,16) : '';
+    const enteredDate = prompt('Date et heure (AAAA-MM-JJTHH:MM), heure locale :', currentLocal);
+    if(enteredDate === null) return;
+    if(enteredDate.trim()){
+      const parsed = new Date(enteredDate);
+      if(isNaN(parsed.getTime())){ toast('Date invalide — format attendu AAAA-MM-JJTHH:MM'); return; }
+      newScheduledAt = parsed.toISOString();
+    }
+  }
+
+  const newAccessCode = prompt('Code d\'accès (laisser vide pour aucun) :', session.access_code || '');
+  if(newAccessCode === null) return;
+
+  saveSessionEdits(session.id, {
+    title: newTitle.trim(),
+    scheduled_at: newScheduledAt,
+    access_code: newAccessCode.trim() || null
+  });
+}
+
+async function saveSessionEdits(id, updates){
+  const { error } = await supabaseClient.from('sessions').update(updates).eq('id', id);
+  if(error){
+    console.error('Erreur modification session:', error);
+    toast('Erreur lors de la modification');
+    return;
+  }
+  toast('Étude modifiée');
+  loadSessionsList();
+}
+
+/* ---------- PARTICIPANTS D'UNE ÉTUDE ---------- */
+async function showSessionParticipants(sessionId, sessionTitle){
+  const { data: rows, error } = await supabaseClient
+    .from('session_participants')
+    .select('guest_name, role, joined_at, left_at, users(full_name)')
+    .eq('session_id', sessionId)
+    .order('joined_at', { ascending: false });
+
+  if(error){
+    toast('Erreur lors du chargement des participants');
+    console.error(error);
+    return;
+  }
+
+  if(!rows || rows.length === 0){
+    alert('Étude "' + sessionTitle + '"\n\nAucun participant enregistré pour l\'instant.');
+    return;
+  }
+
+  const lines = rows.map(r => {
+    const name = (r.users && r.users.full_name) || r.guest_name || 'Participant';
+    const roleLabel = r.role === 'teacher' ? ' (enseignant)' : '';
+    const time = r.joined_at ? new Date(r.joined_at).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' }) : '';
+    return '• ' + name + roleLabel + (time ? ' — ' + time : '');
+  });
+
+  alert('Étude "' + sessionTitle + '"\n\n' + rows.length + ' participant(s) :\n\n' + lines.join('\n'));
 }
 
 /* ---------- BIBLIOTHÈQUE (study_programs) ---------- */
