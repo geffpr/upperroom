@@ -515,7 +515,12 @@
   <div class="auth-wrap">
     <div class="auth-card">
       <h1>Rejoindre une session</h1>
-      <p class="sub">Église Bethel Paris · Jean 3 — La nouvelle naissance</p>
+      <p class="sub" id="joinPageSub">Entrez le code de la session pour continuer.</p>
+      <div id="joinError" style="display:none; background:#FBEFE0; color:#8A5A1B; font-size:13px; padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:14px;"></div>
+      <div class="field">
+        <label>Code de la session</label>
+        <input type="text" id="joinSessionCode" placeholder="Ex. WJ3-EL99-TUL" style="text-transform:uppercase; letter-spacing:1px;">
+      </div>
       <div class="field">
         <label>Votre nom</label>
         <input type="text" id="guestName" placeholder="Ex. Nadège Charles">
@@ -998,6 +1003,10 @@ function showPage(id){
   if(id==='library'){ loadLibrary(); }
   if(id==='members'){ loadMembers(); }
   if(id==='account'){ loadAccountPage(); }
+  if(id==='join'){
+    const codeField = document.getElementById('joinSessionCode');
+    if(codeField){ codeField.style.display=''; codeField.disabled=false; }
+  }
 }
 document.querySelectorAll('.navlinks button').forEach(b=>b.addEventListener('click', ()=>showPage(b.dataset.page)));
 
@@ -2098,17 +2107,19 @@ function buildGreetingName(userRow){
 /* Reflète le vrai état de connexion dans la barre de navigation (nom au lieu de "Se connecter") */
 async function updateNavAuthState(){
   const btn = document.getElementById('navAuthBtn');
-  if(isDevMode){
+  const authOnlyLinks = document.querySelectorAll('.navlinks button[data-page="dashboard"], .navlinks button[data-page="library"], .navlinks button[data-page="members"]');
+
+  function setLoggedOut(){
     btn.textContent = 'Se connecter';
     btn.onclick = () => showPage('login');
-    return;
+    authOnlyLinks.forEach(l => l.style.display = 'none');
   }
+
+  if(isDevMode){ setLoggedOut(); return; }
+
   const { data: sessionData } = await supabaseClient.auth.getSession();
-  if(!sessionData.session){
-    btn.textContent = 'Se connecter';
-    btn.onclick = () => showPage('login');
-    return;
-  }
+  if(!sessionData.session){ setLoggedOut(); return; }
+
   let userRow = currentUser;
   if(!userRow || userRow.id !== sessionData.session.user.id){
     const { data } = await supabaseClient.from('users').select('*').eq('id', sessionData.session.user.id).single();
@@ -2116,6 +2127,7 @@ async function updateNavAuthState(){
   }
   btn.textContent = userRow ? buildGreetingName(userRow) : 'Mon compte';
   btn.onclick = () => showPage('account');
+  authOnlyLinks.forEach(l => l.style.display = '');
 }
 
 /* ---------- MON COMPTE ---------- */
@@ -2333,9 +2345,9 @@ async function loadSessionsList(){
           <div class="t">${escapeHtml(s.title)}</div>
           <div class="m">${isLive ? 'En direct' : (dateLabel ? 'Planifiée · ' + dateLabel : 'Planifiée')}</div>
         </div>
-        ${isLive ? `<button class="btn btn-ghost btn-sm" data-action="copy-link" data-id="${s.id}" data-title="${escapeHtml(s.title)}">🔗</button>` : ''}
+        ${isLive ? `<button class="btn btn-ghost btn-sm" data-action="copy-link" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">🔗</button>` : ''}
         ${isLive && isCreator ? `<button class="btn btn-ghost btn-sm" data-action="end" data-id="${s.id}">Terminer</button>` : ''}
-        <button class="btn ${isLive ? 'btn-violet' : 'btn-ghost'} btn-sm" data-action="join" data-id="${s.id}" data-title="${escapeHtml(s.title)}">
+        <button class="btn ${isLive ? 'btn-violet' : 'btn-ghost'} btn-sm" data-action="join" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">
           ${isLive ? 'Rejoindre' : 'Ouvrir'}
         </button>
       </div>`;
@@ -2345,12 +2357,12 @@ async function loadSessionsList(){
     btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
       const title = btn.dataset.title;
+      const code = btn.dataset.code;
       if(btn.dataset.action === 'join'){
-        joinRealSession(id, title);
+        joinRealSession(id, title, false, code);
       } else if(btn.dataset.action === 'copy-link'){
         const url = new URL(window.location.origin + window.location.pathname);
-        url.searchParams.set('room', id);
-        url.searchParams.set('title', title);
+        url.searchParams.set('code', code || id);
         navigator.clipboard.writeText(url.toString()).then(() => {
           toast('Lien copié : ' + url.toString());
         }).catch(() => {
@@ -2519,11 +2531,18 @@ async function createSubgroup(){
   loadMembers();
 }
 
-function joinRealSession(sessionId, title, asHost){
+function joinRealSession(sessionId, title, asHost, joinCode){
   sessionStorage.setItem('upperroom_room_name', sessionId);
+  if(joinCode) sessionStorage.setItem('upperroom_join_code', joinCode);
   document.getElementById('roomTitleTag').textContent = title;
   isSessionHost = !!asHost;
   showPage('room');
+}
+
+function generateJoinCode(){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans 0/O, 1/I/L pour éviter les confusions à l'oral/écrit
+  const group = (n) => Array.from({length:n}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
+  return group(3) + '-' + group(4) + '-' + group(3);
 }
 
 async function createSession(){
@@ -2546,19 +2565,28 @@ async function createSession(){
     return;
   }
 
-  const { data: newSession, error } = await supabaseClient
-    .from('sessions')
-    .insert({
-      church_id: currentChurch.id,
-      title,
-      session_type: isInstant ? 'instant' : 'scheduled',
-      scheduled_at: isInstant ? null : new Date(scheduledAt).toISOString(),
-      status: isInstant ? 'live' : 'scheduled',
-      access_code: accessCode,
-      created_by: currentUser.id
-    })
-    .select()
-    .single();
+  // Génère un code unique (recommence en cas de collision très improbable)
+  let joinCode, insertResult;
+  for(let attempt = 0; attempt < 3; attempt++){
+    joinCode = generateJoinCode();
+    insertResult = await supabaseClient
+      .from('sessions')
+      .insert({
+        church_id: currentChurch.id,
+        title,
+        session_type: isInstant ? 'instant' : 'scheduled',
+        scheduled_at: isInstant ? null : new Date(scheduledAt).toISOString(),
+        status: isInstant ? 'live' : 'scheduled',
+        access_code: accessCode,
+        created_by: currentUser.id,
+        join_code: joinCode
+      })
+      .select()
+      .single();
+    if(!insertResult.error || insertResult.error.code !== '23505') break; // 23505 = collision d'unicité, on retente
+  }
+
+  const { data: newSession, error } = insertResult;
 
   if(error){
     console.error('Erreur création session:', error);
@@ -2571,9 +2599,9 @@ async function createSession(){
   document.getElementById('newSessionCode').value = '';
 
   if(isInstant){
-    joinRealSession(newSession.id, newSession.title, true);
+    joinRealSession(newSession.id, newSession.title, true, newSession.join_code);
   } else {
-    toast('Étude "' + title + '" planifiée');
+    toast('Étude "' + title + '" planifiée — code : ' + newSession.join_code);
     showPage('dashboard');
   }
 }
@@ -2590,9 +2618,61 @@ updateNavAuthState();
 
 
 /* ---------- GUEST JOIN / END SESSION ---------- */
-function joinAsGuest(){
+function showJoinError(msg){
+  const el = document.getElementById('joinError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideJoinError(){
+  document.getElementById('joinError').style.display = 'none';
+}
+
+async function resolveSessionByCode(code){
+  const cleaned = code.trim().toUpperCase();
+  const { data, error } = await supabaseClient
+    .from('sessions')
+    .select('id, title, access_code, status')
+    .eq('join_code', cleaned)
+    .single();
+  if(error || !data) return null;
+  return data;
+}
+
+async function joinAsGuest(){
+  hideJoinError();
   const name = document.getElementById('guestName').value.trim();
+  const codeInput = document.getElementById('joinSessionCode').value.trim();
+  const accessCodeInput = document.getElementById('guestCode').value.trim();
+
   if(!name){ toast('Entrez votre nom pour continuer'); return; }
+
+  // Si on a déjà résolu une vraie session (arrivée par lien direct), on ne redemande pas le code
+  let resolvedId = sessionStorage.getItem('upperroom_room_name');
+  let resolvedTitle = document.getElementById('roomTitleTag') ? document.getElementById('roomTitleTag').textContent : '';
+  let sessionAccessCode = null;
+
+  if(!resolvedId || resolvedId === DEMO_ROOM_NAME){
+    if(!codeInput){ showJoinError('Entrez le code de la session.'); return; }
+    const session = await resolveSessionByCode(codeInput);
+    if(!session){ showJoinError('Aucune session ne correspond à ce code.'); return; }
+    if(session.status === 'ended'){ showJoinError('Cette session est terminée.'); return; }
+    resolvedId = session.id;
+    resolvedTitle = session.title;
+    sessionAccessCode = session.access_code;
+    sessionStorage.setItem('upperroom_room_name', resolvedId);
+    sessionStorage.setItem('upperroom_join_code', codeInput.toUpperCase());
+  } else {
+    // Session déjà résolue via un lien : on relit son code d'accès pour le vérifier quand même
+    const { data } = await supabaseClient.from('sessions').select('access_code').eq('id', resolvedId).single();
+    sessionAccessCode = data ? data.access_code : null;
+  }
+
+  if(sessionAccessCode && sessionAccessCode !== accessCodeInput){
+    showJoinError('Code d\'accès incorrect.');
+    return;
+  }
+
+  document.getElementById('roomTitleTag').textContent = resolvedTitle;
   sessionStorage.setItem('upperroom_display_name', name);
   isSessionHost = false;
   showPage('room');
@@ -2601,11 +2681,13 @@ function joinAsGuest(){
 
 /* ---------- LIEN DE PARTAGE PAR SESSION ---------- */
 function getShareLink(){
-  const roomName = sessionStorage.getItem('upperroom_room_name') || DEMO_ROOM_NAME;
-  const title = document.getElementById('roomTitleTag') ? document.getElementById('roomTitleTag').textContent : '';
+  const code = sessionStorage.getItem('upperroom_join_code');
   const url = new URL(window.location.origin + window.location.pathname);
-  url.searchParams.set('room', roomName);
-  if(title) url.searchParams.set('title', title);
+  if(code){
+    url.searchParams.set('code', code);
+  } else {
+    url.searchParams.set('room', DEMO_ROOM_NAME); // salle de démo sans vrai code
+  }
   return url.toString();
 }
 
@@ -2618,16 +2700,35 @@ function copyShareLink(){
   });
 }
 
-/* Au chargement : si l'URL contient ?room=..., on prépare la page "Rejoindre" pour cette session précise */
+/* Au chargement : si l'URL contient ?code=... (ou l'ancien ?room=... pour compatibilité), on résout la vraie session */
 (function handleIncomingRoomLink(){
   const params = new URLSearchParams(window.location.search);
-  const room = params.get('room');
-  if(room){
-    sessionStorage.setItem('upperroom_room_name', room);
+  const code = params.get('code');
+  const legacyRoom = params.get('room');
+
+  if(code){
+    window.addEventListener('DOMContentLoaded', async () => {
+      document.getElementById('joinPageSub').textContent = 'Résolution du code…';
+      showPage('join');
+      const session = await resolveSessionByCode(code);
+      if(session){
+        sessionStorage.setItem('upperroom_room_name', session.id);
+        sessionStorage.setItem('upperroom_join_code', code.toUpperCase());
+        document.getElementById('roomTitleTag').textContent = session.title;
+        document.getElementById('joinSessionCode').value = code.toUpperCase();
+        document.getElementById('joinSessionCode').disabled = true;
+        document.getElementById('joinPageSub').textContent = 'Vous rejoignez : ' + session.title;
+      } else {
+        document.getElementById('joinPageSub').textContent = 'Code invalide ou session introuvable.';
+      }
+    });
+  } else if(legacyRoom){
+    // Compatibilité avec d'anciens liens générés avant l'introduction des codes
+    sessionStorage.setItem('upperroom_room_name', legacyRoom);
     const title = params.get('title');
     window.addEventListener('DOMContentLoaded', () => {
-      const sub = document.querySelector('#page-join .sub');
-      if(sub) sub.textContent = title ? ('Vous rejoignez : ' + title) : 'Vous rejoignez une session Upper Room.';
+      document.getElementById('joinPageSub').textContent = title ? ('Vous rejoignez : ' + title) : 'Vous rejoignez une session Upper Room.';
+      document.getElementById('joinSessionCode').style.display = 'none';
       showPage('join');
     });
   }
