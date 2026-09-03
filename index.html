@@ -1124,9 +1124,10 @@ function removeRemoteTile(participant){
 
 /* ---------- TRANSCRIPTION AUTOMATIQUE & DÉTECTION DE VERSETS ---------- */
 let sessionTranscript = '';
-let speechRecognizer = null;
+let recentTranscriptWindow = ''; // fenêtre glissante pour recoller les phrases coupées entre deux morceaux
 let transcriptionShouldBeActive = false;
-let restartAttempts = 0;
+let mediaRecorder = null;
+let chunkTimer = null;
 const lastShownVerses = {}; // référence -> timestamp, pour éviter les répétitions rapprochées
 
 const FR_UNITS = {
@@ -1254,90 +1255,92 @@ async function handleDetectedVerse(match){
 }
 
 function startTranscription(){
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SpeechRecognition){
-    setTranscriptionStatus('Transcription non disponible sur ce navigateur (essayez Chrome ou Edge)');
+  if(!liveKitRoom){
+    setTranscriptionStatus('Non connecté à la salle.');
+    return;
+  }
+  if(typeof MediaRecorder === 'undefined'){
+    setTranscriptionStatus('Transcription non disponible sur ce navigateur.');
+    return;
+  }
+
+  const micPub = Array.from(liveKitRoom.localParticipant.audioTrackPublications.values())
+    .find(p => p.source === 'microphone' && p.track);
+  if(!micPub){
+    setTranscriptionStatus('Micro non disponible pour la transcription.');
     return;
   }
 
   transcriptionShouldBeActive = true;
-  restartAttempts = 0;
   sessionTranscript = '';
+  recentTranscriptWindow = '';
+  setTranscriptionStatus('🎙️ Transcription active (haute précision)');
 
-  speechRecognizer = new SpeechRecognition();
-  speechRecognizer.lang = 'fr-FR';
-  speechRecognizer.continuous = true;
-  speechRecognizer.interimResults = true; // pour un vrai retour en direct, pas une boîte noire
+  const micStream = new MediaStream([micPub.track.mediaStreamTrack]);
+  recordNextChunk(micStream);
+}
 
-  speechRecognizer.onstart = () => {
-    restartAttempts = 0;
-    setTranscriptionStatus('🎙️ En écoute…');
+function recordNextChunk(stream){
+  if(!transcriptionShouldBeActive) return;
+
+  let recorder;
+  try{
+    recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+  }catch(e){
+    setTranscriptionStatus('Enregistrement audio non supporté sur ce navigateur.');
+    return;
+  }
+
+  const chunks = [];
+  mediaRecorder = recorder;
+
+  recorder.ondataavailable = (e) => { if(e.data && e.data.size > 0) chunks.push(e.data); };
+
+  recorder.onstop = async () => {
+    const blob = new Blob(chunks, { type: 'audio/webm' });
+    if(blob.size > 2000){ // ignore les morceaux quasi vides (silence)
+      await transcribeChunk(blob);
+    }
+    if(transcriptionShouldBeActive) recordNextChunk(stream);
   };
 
-  let recentTranscriptWindow = ''; // fenêtre glissante pour recoller les phrases coupées entre deux segments
+  recorder.start();
+  chunkTimer = setTimeout(() => {
+    try{ recorder.stop(); }catch(e){}
+  }, 6000); // morceaux de 6 secondes : bon compromis latence / précision
+}
 
-  speechRecognizer.onresult = (event) => {
-    let interimText = '';
-    for(let i = event.resultIndex; i < event.results.length; i++){
-      const chunk = event.results[i][0].transcript.trim();
-      if(event.results[i].isFinal){
-        if(chunk){
-          sessionTranscript += ' ' + chunk;
-          // Fenêtre glissante : combine avec la fin du morceau précédent pour rattraper
-          // une référence coupée en deux par le moteur de reconnaissance (ex. "...Psaume 23" / "verset 4")
-          recentTranscriptWindow = (recentTranscriptWindow + ' ' + chunk).slice(-250);
-          detectVersesInText(recentTranscriptWindow).forEach(handleDetectedVerse);
-        }
-      } else {
-        interimText += chunk + ' ';
-      }
-    }
-    // Retour en direct : affiche ce qui est entendu, même avant confirmation finale
-    if(interimText.trim()){
-      setTranscriptionStatus('🎙️ « ' + interimText.trim() + ' »');
-      // Détection aussi sur le texte provisoire : souvent plus complet qu'un fragment déjà finalisé
-      detectVersesInText(interimText).forEach(handleDetectedVerse);
-    }
-  };
-
-  speechRecognizer.onerror = (event) => {
-    console.warn('Erreur reconnaissance vocale:', event.error);
-    if(event.error === 'not-allowed' || event.error === 'service-not-allowed'){
-      transcriptionShouldBeActive = false;
-      setTranscriptionStatus('❌ Permission micro refusée pour la transcription (différente de l\'autorisation caméra/micro LiveKit — vérifiez les réglages du navigateur).');
-    } else if(event.error === 'no-speech'){
-      // Silence normal, pas une vraie erreur — on laisse onend gérer le redémarrage
-    } else if(event.error === 'audio-capture'){
-      setTranscriptionStatus('❌ Aucun micro détecté pour la transcription.');
-    } else if(event.error === 'network'){
-      setTranscriptionStatus('⚠️ Connexion instable pour la transcription — nouvelle tentative…');
-    }
-  };
-
-  speechRecognizer.onend = () => {
-    if(!transcriptionShouldBeActive) return;
-    restartAttempts++;
-    if(restartAttempts > 15){
-      setTranscriptionStatus('Transcription interrompue (trop de coupures) — le partage manuel de versets reste disponible.');
+async function transcribeChunk(blob){
+  try{
+    const res = await fetch('/api/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': blob.type },
+      body: blob
+    });
+    const data = await res.json();
+    if(!res.ok){
+      console.warn('Erreur transcription:', data.error);
       return;
     }
-    try{ speechRecognizer.start(); }catch(e){ /* déjà démarré, on ignore */ }
-  };
-
-  try{
-    speechRecognizer.start();
-    setTranscriptionStatus('🎙️ Démarrage de la transcription…');
+    const text = (data.text || '').trim();
+    if(text){
+      sessionTranscript += ' ' + text;
+      recentTranscriptWindow = (recentTranscriptWindow + ' ' + text).slice(-250);
+      setTranscriptionStatus('🎙️ « ' + text + ' »');
+      detectVersesInText(recentTranscriptWindow).forEach(handleDetectedVerse);
+    }
   }catch(e){
-    setTranscriptionStatus("Impossible de démarrer la transcription.");
+    console.error('Erreur envoi audio pour transcription:', e);
   }
 }
 
 function stopTranscription(){
   transcriptionShouldBeActive = false;
-  if(speechRecognizer){
-    try{ speechRecognizer.stop(); }catch(e){}
-    speechRecognizer = null;
+  if(chunkTimer){ clearTimeout(chunkTimer); chunkTimer = null; }
+  if(mediaRecorder && mediaRecorder.state !== 'inactive'){
+    try{ mediaRecorder.stop(); }catch(e){}
   }
+  mediaRecorder = null;
   setTranscriptionStatus('');
 }
 
