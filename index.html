@@ -248,6 +248,32 @@
   .scripture-card p{font-family:'Source Serif 4',serif; font-size:15px; line-height:1.5; margin:0;}
   .scripture-card mark{background:var(--sand-deep); padding:0 3px; border-radius:3px; cursor:pointer;}
   .scripture-card .hint{margin-top:10px; color:var(--gray); font-size:11px;}
+
+  /* ---------- POPUP INFOS DE SESSION (à l'entrée dans la salle) ---------- */
+  .join-info-overlay{
+    position:fixed; inset:0; background:rgba(15,15,16,0.55); backdrop-filter:blur(3px);
+    display:flex; align-items:center; justify-content:center; z-index:50;
+    opacity:0; pointer-events:none; transition:opacity .25s ease;
+  }
+  .join-info-overlay.show{opacity:1; pointer-events:auto;}
+  .join-info-card{
+    background:#fff; border-radius:var(--radius-lg); padding:28px; max-width:420px; width:90%;
+    position:relative;
+  }
+  .join-info-card .close-btn{position:absolute; top:14px; right:16px; background:none; border:none; font-size:18px; color:var(--gray); cursor:pointer;}
+  .join-info-card h3{font-size:19px; margin-bottom:4px;}
+  .join-info-card .sub{color:var(--gray); font-size:13.5px; margin-bottom:20px;}
+  .join-info-row{margin-bottom:16px;}
+  .join-info-row label{display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--gray); margin-bottom:6px;}
+  .join-info-code{
+    font-family:'Source Serif 4',serif; font-size:22px; font-weight:600; letter-spacing:1px; color:var(--violet-deep);
+    background:var(--violet-tint); padding:10px 14px; border-radius:var(--radius-sm); text-align:center;
+  }
+  .join-info-link{
+    display:flex; align-items:center; gap:8px; background:var(--sand); border-radius:var(--radius-sm); padding:9px 12px;
+    font-size:12.5px; color:var(--ink); overflow:hidden;
+  }
+  .join-info-link span{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   @media (max-width:640px){
     .scripture-overlay{ left:10px; right:10px; max-width:none; bottom:8px; }
   }
@@ -742,6 +768,27 @@
 <!-- ============ STUDY ROOM ============ -->
 <section class="page" id="page-room">
   <div class="room-wrap">
+
+    <div class="join-info-overlay" id="joinInfoOverlay">
+      <div class="join-info-card">
+        <button class="close-btn" onclick="document.getElementById('joinInfoOverlay').classList.remove('show')">✕</button>
+        <h3 id="joinInfoTitle">Étude</h3>
+        <p class="sub">Partagez ces informations pour inviter d'autres personnes.</p>
+        <div class="join-info-row">
+          <label>Code de la session</label>
+          <div class="join-info-code" id="joinInfoCode">—</div>
+        </div>
+        <div class="join-info-row">
+          <label>Lien à partager</label>
+          <div class="join-info-link">
+            <span id="joinInfoLinkText">—</span>
+            <button class="btn btn-violet btn-sm" onclick="copyShareLink()">Copier</button>
+          </div>
+        </div>
+        <button class="btn btn-ghost" style="width:100%; justify-content:center;" onclick="document.getElementById('joinInfoOverlay').classList.remove('show')">Fermer</button>
+      </div>
+    </div>
+
     <div class="room-head">
       <div class="room-title">
         <div class="live-pill"><span class="live-dot" style="background:#B91C1C"></span> EN DIRECT</div>
@@ -751,7 +798,7 @@
         </div>
       </div>
       <div style="display:flex; gap:8px;">
-        <button class="btn btn-secondary btn-sm" onclick="copyShareLink()">🔗 Copier le lien</button>
+        <button class="btn btn-secondary btn-sm" onclick="showJoinInfoModal()">🔗 Infos de la session</button>
         <button class="btn btn-ghost btn-sm" onclick="leaveLiveKitRoom(); showPage('dashboard')">← Quitter la salle</button>
       </div>
     </div>
@@ -1595,6 +1642,7 @@ async function initCamera(){
     toast('Connecté à la salle en direct ✅');
     startPlanEnforcement();
     recordAttendanceIfRealSession(roomName, displayName);
+    showJoinInfoModal();
 
     if(isSessionHost){
       const canUseAi = await canUseAiFeaturesThisSession();
@@ -2736,6 +2784,16 @@ function copyShareLink(){
   }).catch(() => {
     prompt('Copiez ce lien pour inviter des participants :', link);
   });
+}
+
+/* Popup infos de session : affichée automatiquement à l'entrée, et réouvrable à volonté */
+function showJoinInfoModal(){
+  const code = sessionStorage.getItem('upperroom_join_code');
+  const title = document.getElementById('roomTitleTag') ? document.getElementById('roomTitleTag').textContent : 'Étude';
+  document.getElementById('joinInfoTitle').textContent = title;
+  document.getElementById('joinInfoCode').textContent = code || 'Salle de démonstration';
+  document.getElementById('joinInfoLinkText').textContent = getShareLink();
+  document.getElementById('joinInfoOverlay').classList.add('show');
 }
 
 /* Au chargement : si l'URL contient ?code=... (ou l'ancien ?room=... pour compatibilité), on résout la vraie session */
