@@ -274,6 +274,32 @@
     font-size:12.5px; color:var(--ink); overflow:hidden;
   }
   .join-info-link span{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+
+  /* ---------- RÉACTIONS FLOTTANTES ---------- */
+  .floating-reaction{
+    position:absolute; bottom:90px; font-size:32px; pointer-events:none; z-index:8;
+    animation:floatUp 2.2s ease-out forwards;
+  }
+  @keyframes floatUp{
+    0%{opacity:0; transform:translateY(0) scale(.6);}
+    15%{opacity:1; transform:translateY(-20px) scale(1);}
+    100%{opacity:0; transform:translateY(-160px) scale(1.1);}
+  }
+
+  /* ---------- MODE INTERPRÈTE (incrustation) ---------- */
+  .interpreter-pip{
+    position:absolute; bottom:100px; right:14px; width:130px; aspect-ratio:4/3; border-radius:10px;
+    overflow:hidden; border:2px solid var(--violet); z-index:7; background:#000;
+    box-shadow:0 8px 24px -6px rgba(0,0,0,.5);
+  }
+  .interpreter-pip video{width:100%; height:100%; object-fit:cover;}
+  .interpreter-pip .tag{
+    position:absolute; bottom:4px; left:4px; background:rgba(0,0,0,.6); color:#fff; font-size:10px;
+    padding:2px 6px; border-radius:5px;
+  }
+  @media (max-width:640px){
+    .interpreter-pip{ width:90px; bottom:88px; }
+  }
   @media (max-width:640px){
     .scripture-overlay{ left:10px; right:10px; max-width:none; bottom:8px; }
   }
@@ -814,12 +840,17 @@
       <p id="roomStatus" style="text-align:center; font-size:12.5px; color:var(--gray); margin-top:8px;">Connexion à la salle…</p>
       <p id="transcriptionStatus" style="text-align:center; font-size:12.5px; color:var(--violet-deep); margin-top:2px; min-height:16px;"></p>
 
-      <div class="lang-picker">
+      <div class="lang-picker" style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
         <select id="captionLang" title="Langue des sous-titres">
           <option value="off">Sous-titres : désactivés</option>
           <option value="fr">Sous-titres : Français</option>
           <option value="ht">Sous-titres : Kreyòl</option>
           <option value="en">Sous-titres : English</option>
+        </select>
+        <button type="button" id="becomeInterpreterBtn" style="background:rgba(0,0,0,0.55); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:999px; padding:5px 12px; font-size:11.5px; cursor:pointer;">🎧 Je suis l'interprète</button>
+        <select id="interpreterListenMode" title="Écouter" style="display:none;">
+          <option value="original">Écouter : orateur original</option>
+          <option value="interpreter">Écouter : interprète</option>
         </select>
       </div>
 
@@ -842,6 +873,14 @@
         <button class="tool-btn" id="shareBtn" title="Partager l'écran">🖥️</button>
         <button class="tool-btn" id="handBtn" title="Lever la main">✋</button>
         <button class="tool-btn on-accent" id="bibleBtn" title="Afficher un verset">📖</button>
+        <div style="position:relative;">
+          <button class="tool-btn" id="reactionBtn" title="Réagir">🙏</button>
+          <div id="reactionPicker" style="display:none; position:absolute; bottom:52px; left:50%; transform:translateX(-50%); background:#fff; border-radius:999px; padding:6px 10px; display:none; gap:6px; box-shadow:0 8px 24px -6px rgba(0,0,0,.3);">
+            <button type="button" data-reaction="amen" style="font-size:22px; background:none; border:none; cursor:pointer;">🙏</button>
+            <button type="button" data-reaction="applause" style="font-size:22px; background:none; border:none; cursor:pointer;">👏</button>
+            <button type="button" data-reaction="fire" style="font-size:22px; background:none; border:none; cursor:pointer;">🔥</button>
+          </div>
+        </div>
         <button class="tool-btn tool-leave" title="Quitter" onclick="endSession()">✕</button>
       </div>
     </div>
@@ -1208,6 +1247,12 @@ function updateActiveSpeakerLayout(speakers){
 function removeRemoteTile(participant){
   const tile = document.getElementById('tile-' + participant.identity);
   if(tile) tile.remove();
+  delete remoteAudioElements[participant.identity];
+  if(participant.identity === interpreterIdentity){
+    interpreterIdentity = null;
+    setInterpreterUiVisible(false);
+    updateInterpreterPip();
+  }
 }
 
 /* ---------- TRANSCRIPTION AUTOMATIQUE & DÉTECTION DE VERSETS ---------- */
@@ -1500,8 +1545,16 @@ function flushPendingResults(sequence, text){
       recentTranscriptWindow = (recentTranscriptWindow + ' ' + orderedText).slice(-250);
       setTranscriptionStatus('🎙️ « ' + orderedText + ' »');
       detectVersesInText(recentTranscriptWindow).forEach(handleDetectedVerse);
+      broadcastTranscriptChunk(orderedText);
     }
   }
+}
+
+/* Diffuse le texte transcrit de l'orateur à tous les participants, pour que chacun puisse le traduire dans sa langue */
+function broadcastTranscriptChunk(text){
+  if(!liveKitRoom) return;
+  const payload = new TextEncoder().encode(JSON.stringify({ type: 'transcript', text }));
+  liveKitRoom.localParticipant.publishData(payload, { reliable: false }).catch(e => console.error('Erreur diffusion transcription:', e));
 }
 
 async function transcribeChunk(blob, sequence){
@@ -1593,8 +1646,11 @@ async function initCamera(){
         let tile = document.getElementById('tile-' + participant.identity);
         if(!tile) tile = createRemoteTile(participant);
         track.attach(tile.querySelector('video'));
+        if(participant.identity === interpreterIdentity) updateInterpreterPip();
       } else if(track.kind === 'audio'){
-        track.attach();
+        const audioEl = track.attach();
+        remoteAudioElements[participant.identity] = audioEl;
+        applyAudioListenMode();
       }
       upsertPerson(participant.identity, participant.name || participant.identity, 'Membre');
     });
@@ -1620,6 +1676,12 @@ async function initCamera(){
         const msg = JSON.parse(new TextDecoder().decode(payload));
         if(msg.type === 'chat'){
           renderChatMessage(msg.name || (participant && participant.name) || 'Participant', msg.text, false);
+        } else if(msg.type === 'reaction'){
+          showFloatingReaction(msg.reaction);
+        } else if(msg.type === 'transcript'){
+          handleIncomingTranscriptChunk(msg.text);
+        } else if(msg.type === 'interpreter_status'){
+          handleInterpreterStatus(msg.identity, msg.active);
         }
       }catch(e){ /* message non reconnu, ignoré */ }
     });
@@ -1954,6 +2016,123 @@ function addSystemMessage(text){
   wrap.appendChild(div);
   wrap.scrollTop = wrap.scrollHeight;
 }
+
+/* ---------- RÉACTIONS RAPIDES ---------- */
+/* ---------- MODE INTERPRÈTE ---------- */
+let interpreterIdentity = null;
+let isInterpreter = false;
+let listenMode = 'original'; // 'original' | 'interpreter'
+const remoteAudioElements = {}; // identity -> élément <audio>, pour pouvoir couper/activer individuellement
+
+function applyAudioListenMode(){
+  Object.entries(remoteAudioElements).forEach(([identity, el]) => {
+    if(!interpreterIdentity){
+      el.muted = false; // pas d'interprète actif : tout le monde s'entend normalement
+      return;
+    }
+    const isThisTheInterpreter = identity === interpreterIdentity;
+    if(listenMode === 'interpreter'){
+      el.muted = !isThisTheInterpreter; // on coupe tout sauf l'interprète
+    } else {
+      el.muted = isThisTheInterpreter; // on coupe l'interprète, on garde le reste
+    }
+  });
+}
+
+function setInterpreterUiVisible(visible){
+  document.getElementById('interpreterListenMode').style.display = visible ? 'block' : 'none';
+}
+
+document.getElementById('becomeInterpreterBtn').addEventListener('click', () => {
+  isInterpreter = !isInterpreter;
+  const btn = document.getElementById('becomeInterpreterBtn');
+  btn.textContent = isInterpreter ? '🎧 Interprète actif (cliquer pour arrêter)' : '🎧 Je suis l\'interprète';
+  btn.style.background = isInterpreter ? 'var(--violet)' : 'rgba(0,0,0,0.55)';
+
+  if(liveKitRoom){
+    const identity = liveKitRoom.localParticipant.identity;
+    const payload = new TextEncoder().encode(JSON.stringify({
+      type: 'interpreter_status', identity, active: isInterpreter
+    }));
+    liveKitRoom.localParticipant.publishData(payload, { reliable: true }).catch(e => console.error('Erreur diffusion statut interprète:', e));
+  }
+  toast(isInterpreter ? 'Vous êtes maintenant identifié comme interprète' : 'Vous n\'êtes plus identifié comme interprète');
+});
+
+document.getElementById('interpreterListenMode').addEventListener('change', function(){
+  listenMode = this.value;
+  applyAudioListenMode();
+});
+
+function handleInterpreterStatus(identity, active){
+  interpreterIdentity = active ? identity : (interpreterIdentity === identity ? null : interpreterIdentity);
+  setInterpreterUiVisible(!!interpreterIdentity);
+  updateInterpreterPip();
+  applyAudioListenMode();
+}
+
+function updateInterpreterPip(){
+  let pip = document.getElementById('interpreterPip');
+  if(!interpreterIdentity){
+    if(pip) pip.remove();
+    return;
+  }
+  const sourceTile = document.getElementById('tile-' + interpreterIdentity) || document.getElementById('localTile');
+  const sourceVideo = sourceTile ? sourceTile.querySelector('video') : null;
+  if(!sourceVideo) return;
+
+  const stage = document.querySelector('.stage');
+  if(!pip){
+    pip = document.createElement('div');
+    pip.id = 'interpreterPip';
+    pip.className = 'interpreter-pip';
+    pip.innerHTML = `<video autoplay playsinline></video><div class="tag">🎧 Interprète</div>`;
+    stage.appendChild(pip);
+  }
+  // Ré-attache le même flux vidéo dans l'incrustation
+  pip.querySelector('video').srcObject = sourceVideo.srcObject;
+}
+
+const REACTION_EMOJIS = { amen: '🙏', applause: '👏', fire: '🔥' };
+
+function showFloatingReaction(reaction){
+  const emoji = REACTION_EMOJIS[reaction] || '🙏';
+  const stage = document.querySelector('.stage') || document.getElementById('videoGrid');
+  if(!stage) return;
+  const el = document.createElement('div');
+  el.className = 'floating-reaction';
+  el.textContent = emoji;
+  el.style.left = (30 + Math.random() * 40) + '%';
+  stage.appendChild(el);
+  setTimeout(() => el.remove(), 2300);
+}
+
+async function sendReaction(reaction){
+  showFloatingReaction(reaction);
+  document.getElementById('reactionPicker').style.display = 'none';
+
+  if(liveKitRoom){
+    const payload = new TextEncoder().encode(JSON.stringify({ type: 'reaction', reaction }));
+    liveKitRoom.localParticipant.publishData(payload, { reliable: true }).catch(e => console.error('Erreur envoi réaction:', e));
+  }
+
+  // Enregistrement réel si c'est une vraie session (pas la démo)
+  const roomName = sessionStorage.getItem('upperroom_room_name');
+  if(currentUser && roomName && UUID_REGEX.test(roomName) && !isDevMode){
+    const { error } = await supabaseClient.from('session_reactions').insert({
+      session_id: roomName, user_id: currentUser.id, reaction_type: reaction
+    });
+    if(error) console.error('Erreur enregistrement réaction:', error);
+  }
+}
+
+document.getElementById('reactionBtn').addEventListener('click', () => {
+  const picker = document.getElementById('reactionPicker');
+  picker.style.display = picker.style.display === 'none' ? 'flex' : 'none';
+});
+document.querySelectorAll('#reactionPicker button[data-reaction]').forEach(btn => {
+  btn.addEventListener('click', () => sendReaction(btn.dataset.reaction));
+});
 
 function renderChatMessage(who, text, isMe){
   const wrap = document.getElementById('chatMessages');
@@ -2997,29 +3176,49 @@ async function endSession(){
   }
 }
 
-/* ---------- LIVE TRANSLATED CAPTIONS (simulated) ---------- */
-const captionSamples = {
-  fr:[{src:'FR (original)', text:"Dieu a tant aimé le monde qu'il a donné son Fils unique."}],
-  ht:[{src:'FR → Kreyòl', text:"Bondye sitèlman renmen lemonn li te bay sèl Pitit li a."}],
-  en:[{src:'FR → English', text:"God so loved the world that he gave his one and only Son."}]
-};
-let captionTimer = null;
+/* ---------- SOUS-TITRES TRADUITS EN DIRECT (réels, via Claude) ---------- */
+const LANGUAGE_LABELS = { fr: 'FR (original)', ht: 'FR → Kreyòl', en: 'FR → English' };
+let activeCaptionLang = 'off';
+
 document.getElementById('captionLang').addEventListener('change', function(){
+  activeCaptionLang = this.value;
   const bar = document.getElementById('captionsBar');
-  clearInterval(captionTimer);
-  if(this.value === 'off'){ bar.classList.remove('show'); return; }
-  const samples = captionSamples[this.value];
-  let i = 0;
-  function showCaption(){
-    document.getElementById('captionSrc').textContent = samples[i % samples.length].src;
-    document.getElementById('captionText').textContent = samples[i % samples.length].text;
-    bar.classList.add('show');
-    i++;
+  if(activeCaptionLang === 'off'){
+    bar.classList.remove('show');
+    return;
   }
-  showCaption();
-  captionTimer = setInterval(showCaption, 6000);
   toast('Sous-titres traduits activés');
 });
+
+/* Reçoit un morceau du texte transcrit de l'orateur et l'affiche traduit dans la langue choisie */
+async function handleIncomingTranscriptChunk(text){
+  if(activeCaptionLang === 'off' || !text.trim()) return;
+
+  const bar = document.getElementById('captionsBar');
+  document.getElementById('captionSrc').textContent = LANGUAGE_LABELS[activeCaptionLang] || activeCaptionLang;
+
+  if(activeCaptionLang === 'fr'){
+    // Pas de traduction nécessaire, on affiche directement
+    document.getElementById('captionText').textContent = text;
+    bar.classList.add('show');
+    return;
+  }
+
+  try{
+    const res = await fetch('/api/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, targetLang: activeCaptionLang })
+    });
+    const data = await res.json();
+    if(res.ok && data.translated){
+      document.getElementById('captionText').textContent = data.translated;
+      bar.classList.add('show');
+    }
+  }catch(e){
+    console.error('Erreur traduction sous-titre:', e);
+  }
+}
 </script>
 </body>
 </html>
