@@ -750,31 +750,35 @@
   <div class="pricing-wrap">
     <div class="pricing-head">
       <h1>Un plan pour chaque église</h1>
-      <p>Commencez gratuitement. Passez à l'échelle quand votre communauté grandit.</p>
+      <p>Testez gratuitement avec votre église. Passez à l'échelle quand votre communauté grandit.</p>
     </div>
     <div class="plans">
       <div class="plan">
         <div class="plan-name">Free</div>
         <div class="plan-price">0€ <span>/mois</span></div>
-        <div class="plan-desc">Pour démarrer avec votre église</div>
+        <div class="plan-desc">Pour découvrir Upper Room, sans engagement</div>
         <ul>
           <li><span class="ck">✓</span> 50 membres</li>
-          <li><span class="ck">✓</span> 1 salle d'étude</li>
+          <li><span class="ck">✓</span> Études illimitées (50 min chacune)</li>
+          <li><span class="ck">✓</span> Jusqu'à 10 participants par session</li>
           <li><span class="ck">✓</span> Calendrier &amp; chat</li>
-          <li><span class="ck">✓</span> Visioconférence limitée</li>
+          <li><span class="ck">✓</span> Bible complète &amp; partage manuel de versets</li>
+          <li><span class="ck">✓</span> Détection vocale &amp; récap IA — 5 premières études offertes</li>
         </ul>
-        <button class="btn btn-ghost" onclick="goToSignup()">Commencer</button>
+        <button class="btn btn-ghost" onclick="goToSignup()">Commencer gratuitement</button>
       </div>
       <div class="plan featured">
         <div class="badge">Le plus choisi</div>
         <div class="plan-name">Church</div>
         <div class="plan-price">29€ <span>/mois</span></div>
-        <div class="plan-desc">Pour les églises actives</div>
+        <div class="plan-desc">Pour les églises qui étudient chaque semaine</div>
         <ul>
           <li><span class="ck">✓</span> 300 membres</li>
-          <li><span class="ck">✓</span> Études illimitées</li>
+          <li><span class="ck">✓</span> Études sans limite de durée</li>
+          <li><span class="ck">✓</span> Jusqu'à 50 participants par session</li>
+          <li><span class="ck">✓</span> Détection vocale de versets &amp; récap IA illimités</li>
           <li><span class="ck">✓</span> Plusieurs enseignants</li>
-          <li><span class="ck">✓</span> Replays &amp; bibliothèque</li>
+          <li><span class="ck">✓</span> Replays &amp; bibliothèque réutilisable</li>
           <li><span class="ck">✓</span> Traduction live (2 langues)</li>
         </ul>
         <button class="btn btn-primary" onclick="goToSignup()">Choisir Church</button>
@@ -785,9 +789,10 @@
         <div class="plan-desc">Marque blanche &amp; traduction avancée</div>
         <ul>
           <li><span class="ck">✓</span> 1 000 membres</li>
+          <li><span class="ck">✓</span> Participants illimités</li>
           <li><span class="ck">✓</span> Domaine personnalisé</li>
           <li><span class="ck">✓</span> Traduction illimitée (créole inclus)</li>
-          <li><span class="ck">✓</span> Recap IA automatique</li>
+          <li><span class="ck">✓</span> Sous-groupes &amp; départements</li>
           <li><span class="ck">✓</span> Statistiques avancées</li>
         </ul>
         <button class="btn btn-ghost" onclick="goToSignup()">Choisir Pro</button>
@@ -802,9 +807,12 @@
           <li><span class="ck">✓</span> Support prioritaire</li>
           <li><span class="ck">✓</span> Facturation groupée</li>
         </ul>
-        <button class="btn btn-ghost" onclick="showPage('dashboard')">Nous contacter</button>
+        <button class="btn btn-ghost" onclick="toast('Écrivez-nous pour discuter de votre réseau d\'églises')">Nous contacter</button>
       </div>
     </div>
+    <p style="text-align:center; color:var(--gray); font-size:13px; margin-top:28px;">
+      Le palier gratuit affiche un avertissement à 45 minutes et met fin à la session à 50 minutes. Passez à Church pour des études sans limite de durée.
+    </p>
   </div>
 </section>
 
