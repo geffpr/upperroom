@@ -515,7 +515,7 @@
     <p class="sub">Études bibliques en direct, traduction multilingue, bibliothèque et communauté — sur une plateforme qui vous appartient, pas un lien Zoom perdu dans un email.</p>
     <div class="hero-ctas">
       <button class="btn btn-primary" onclick="goToSignup()">Commencer gratuitement →</button>
-      <button class="btn btn-ghost" onclick="showPage('room')">Voir une salle en direct</button>
+      <button class="btn btn-ghost" onclick="isSessionHost=true; showPage('room')">Voir une salle en direct</button>
     </div>
   </div>
 
@@ -527,7 +527,7 @@
         <h3>Rencontrez-vous, où que vous soyez.</h3>
         <p>Visioconférence intégrée avec traduction live, main levée, Bible partagée et enregistrement — sans jamais quitter votre plateforme.</p>
       </div>
-      <button class="btn btn-secondary btn-sm" style="align-self:flex-start" onclick="showPage('room')">Entrer dans une étude →</button>
+      <button class="btn btn-secondary btn-sm" style="align-self:flex-start" onclick="isSessionHost=true; showPage('room')">Entrer dans une étude →</button>
     </div>
     <div class="pillar-mini">
       <div class="ico" style="background:var(--violet-tint); color:var(--violet-deep);">📖</div>
@@ -1093,6 +1093,34 @@ function updateGridLayoutMode(){
   }
 }
 
+/* Met automatiquement en avant (grande vignette) la personne qui parle en ce moment.
+   Désactivé pendant un partage d'écran, pour ne pas perturber cette mise en page. */
+function updateActiveSpeakerLayout(speakers){
+  const grid = document.getElementById('videoGrid');
+  if(!grid || grid.classList.contains('screen-sharing')) return;
+  if(!liveKitRoom) return;
+
+  // Retire la mise en avant précédente
+  grid.querySelectorAll('.tile').forEach(t => t.classList.remove('main-teacher', 'speaking'));
+
+  let targetTileId = 'localTile'; // par défaut, si personne ne parle activement
+  if(speakers && speakers.length > 0){
+    const top = speakers[0];
+    targetTileId = (top.identity === liveKitRoom.localParticipant.identity)
+      ? 'localTile'
+      : 'tile-' + top.identity;
+  }
+
+  const targetTile = document.getElementById(targetTileId);
+  if(targetTile){
+    targetTile.classList.add('main-teacher', 'speaking');
+  } else {
+    // La personne qui parle n'a pas (encore) de vignette visible : on garde la tuile locale en avant
+    const fallback = document.getElementById('localTile');
+    if(fallback) fallback.classList.add('main-teacher');
+  }
+}
+
 function removeRemoteTile(participant){
   const tile = document.getElementById('tile-' + participant.identity);
   if(tile) tile.remove();
@@ -1495,6 +1523,10 @@ async function initCamera(){
       }catch(e){ /* message non reconnu, ignoré */ }
     });
 
+    liveKitRoom.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+      updateActiveSpeakerLayout(speakers);
+    });
+
     await liveKitRoom.connect(LIVEKIT_URL, tokenData.token);
     await liveKitRoom.localParticipant.setCameraEnabled(true);
     await liveKitRoom.localParticipant.setMicrophoneEnabled(true);
@@ -1505,14 +1537,18 @@ async function initCamera(){
     });
 
     document.getElementById('roomStatus').textContent = '';
-    upsertPerson('local-' + identity, displayName + ' (vous)', 'Enseignant');
+    upsertPerson('local-' + identity, displayName + ' (vous)', isSessionHost ? 'Enseignant' : 'Membre');
     toast('Connecté à la salle en direct ✅');
     startPlanEnforcement();
 
-    const canUseAi = await canUseAiFeaturesThisSession();
-    if(canUseAi){
-      startTranscription();
-      incrementAiTrialUsageIfNeeded();
+    if(isSessionHost){
+      const canUseAi = await canUseAiFeaturesThisSession();
+      if(canUseAi){
+        startTranscription();
+        incrementAiTrialUsageIfNeeded();
+      }
+    } else {
+      setTranscriptionStatus('');
     }
 
   }catch(err){
@@ -1527,6 +1563,7 @@ async function initCamera(){
 function leaveLiveKitRoom(){
   stopTranscription();
   clearPlanEnforcementTimers();
+  isSessionHost = false;
   if(liveKitRoom){
     liveKitRoom.disconnect();
     liveKitRoom = null;
@@ -1929,6 +1966,7 @@ function slugifyRoomName(title){
 /* ---------- CONTEXTE RÉEL : utilisateur, église, sessions (Supabase) ---------- */
 let currentUser = null;
 let currentChurch = null;
+let isSessionHost = false; // seul l'orateur désigné (celui qui a lancé la session) est transcrit automatiquement
 
 async function loadDashboardContext(){
   if(isDevMode){
@@ -2009,9 +2047,10 @@ async function loadSessionsList(){
   }).join('');
 }
 
-function joinRealSession(sessionId, title){
+function joinRealSession(sessionId, title, asHost){
   sessionStorage.setItem('upperroom_room_name', sessionId);
   document.getElementById('roomTitleTag').textContent = title;
+  isSessionHost = !!asHost;
   showPage('room');
 }
 
@@ -2060,7 +2099,7 @@ async function createSession(){
   document.getElementById('newSessionCode').value = '';
 
   if(isInstant){
-    joinRealSession(newSession.id, newSession.title);
+    joinRealSession(newSession.id, newSession.title, true);
   } else {
     toast('Étude "' + title + '" planifiée');
     showPage('dashboard');
@@ -2082,6 +2121,7 @@ function joinAsGuest(){
   const name = document.getElementById('guestName').value.trim();
   if(!name){ toast('Entrez votre nom pour continuer'); return; }
   sessionStorage.setItem('upperroom_display_name', name);
+  isSessionHost = false;
   showPage('room');
   toast('Bienvenue ' + name + ' — vous avez rejoint en tant qu\'invité');
 }
