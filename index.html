@@ -1233,6 +1233,67 @@ async function handleDetectedVerse(match){
   }
 }
 
+/* ---------- APPLICATION DES LIMITES DU PALIER GRATUIT ---------- */
+let sessionTimerWarned = false;
+let sessionTimeLimitTimer = null;
+let sessionWarningTimer = null;
+let aiTrialBlockedThisSession = false;
+
+function isFreePlan(){
+  // Par sécurité, un compte sans église connue (mode dev, invité sans contexte) est traité comme gratuit
+  return !currentChurch || currentChurch.plan === 'free';
+}
+
+function startPlanEnforcement(){
+  clearPlanEnforcementTimers();
+  sessionTimerWarned = false;
+
+  if(!isFreePlan()) return; // paliers payants : pas de limite de durée
+
+  sessionWarningTimer = setTimeout(() => {
+    sessionTimerWarned = true;
+    toast('⏳ Palier gratuit : la session se terminera dans 5 minutes. Passez à Church pour des études sans limite.');
+    setTranscriptionStatus('⏳ Fin de session dans 5 minutes (palier gratuit)');
+  }, 45 * 60 * 1000);
+
+  sessionTimeLimitTimer = setTimeout(() => {
+    toast('⏹️ Limite de 50 minutes atteinte (palier gratuit) — session terminée.');
+    endSession();
+  }, 50 * 60 * 1000);
+}
+
+function clearPlanEnforcementTimers(){
+  if(sessionWarningTimer){ clearTimeout(sessionWarningTimer); sessionWarningTimer = null; }
+  if(sessionTimeLimitTimer){ clearTimeout(sessionTimeLimitTimer); sessionTimeLimitTimer = null; }
+}
+
+/* Essai gratuit : 5 études avec détection vocale + récap IA, puis retour au partage manuel */
+async function canUseAiFeaturesThisSession(){
+  if(!isFreePlan()) return true; // illimité sur les paliers payants
+
+  if(!currentChurch){
+    return false; // mode dev / invité sans église connue : pas d'IA par sécurité
+  }
+
+  if(currentChurch.ai_trial_studies_used >= 5){
+    aiTrialBlockedThisSession = true;
+    setTranscriptionStatus("Essai gratuit de détection vocale épuisé (5 études) — utilisez le partage manuel de versets, ou passez à Church pour continuer.");
+    return false;
+  }
+  return true;
+}
+
+async function incrementAiTrialUsageIfNeeded(){
+  if(aiTrialBlockedThisSession || !isFreePlan() || !currentChurch) return;
+  const newCount = (currentChurch.ai_trial_studies_used || 0) + 1;
+  currentChurch.ai_trial_studies_used = newCount; // reflète tout de suite côté client
+  const { error } = await supabaseClient
+    .from('churches')
+    .update({ ai_trial_studies_used: newCount })
+    .eq('id', currentChurch.id);
+  if(error) console.error('Erreur incrément essai IA:', error);
+}
+
 function startTranscription(){
   if(!liveKitRoom){
     setTranscriptionStatus('Non connecté à la salle.');
@@ -1384,7 +1445,8 @@ async function initCamera(){
   try{
     const identity = displayName.toLowerCase().replace(/[^a-z0-9]/g, '') + '-' + Math.floor(Math.random()*10000);
     const roomName = sessionStorage.getItem('upperroom_room_name') || DEMO_ROOM_NAME;
-    const tokenRes = await fetch(`/api/token?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent(identity)}&name=${encodeURIComponent(displayName)}`);
+    const plan = (currentChurch && currentChurch.plan) ? currentChurch.plan : 'free';
+    const tokenRes = await fetch(`/api/token?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent(identity)}&name=${encodeURIComponent(displayName)}&plan=${encodeURIComponent(plan)}`);
     const tokenData = await tokenRes.json();
     if(!tokenRes.ok) throw new Error(tokenData.error || 'Impossible d\'obtenir un jeton d\'accès');
 
@@ -1445,19 +1507,26 @@ async function initCamera(){
     document.getElementById('roomStatus').textContent = '';
     upsertPerson('local-' + identity, displayName + ' (vous)', 'Enseignant');
     toast('Connecté à la salle en direct ✅');
-    startTranscription();
+    startPlanEnforcement();
+
+    const canUseAi = await canUseAiFeaturesThisSession();
+    if(canUseAi){
+      startTranscription();
+      incrementAiTrialUsageIfNeeded();
+    }
 
   }catch(err){
     console.error(err);
     document.getElementById('localVideo').style.display='none';
     document.getElementById('localFallback').style.display='flex';
-    document.getElementById('roomStatus').textContent = 'Caméra/micro non autorisés, ou erreur de connexion.';
-    toast('Impossible de rejoindre la salle en direct');
+    document.getElementById('roomStatus').textContent = err.message || 'Caméra/micro non autorisés, ou erreur de connexion.';
+    toast(err.message || 'Impossible de rejoindre la salle en direct');
   }
 }
 
 function leaveLiveKitRoom(){
   stopTranscription();
+  clearPlanEnforcementTimers();
   if(liveKitRoom){
     liveKitRoom.disconnect();
     liveKitRoom = null;

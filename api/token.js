@@ -5,15 +5,20 @@ function sendJson(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
+// URL du projet LiveKit (pas un secret, dérivée de l'URL WebSocket déjà utilisée côté client)
+const LIVEKIT_HTTPS_URL = 'https://upper-room-fux387sl.livekit.cloud';
+const FREE_PLAN_PARTICIPANT_LIMIT = 10;
+
 module.exports = async (req, res) => {
   try {
-    const { AccessToken } = require('livekit-server-sdk');
+    const { AccessToken, RoomServiceClient } = require('livekit-server-sdk');
 
     // req.query peut ne pas être fourni selon la configuration — on le reconstruit nous-mêmes pour être sûr
     const url = new URL(req.url, 'http://localhost');
     const room = (url.searchParams.get('room') || '').trim();
     const identity = (url.searchParams.get('identity') || '').trim();
     const name = (url.searchParams.get('name') || identity).trim();
+    const plan = (url.searchParams.get('plan') || 'free').trim();
 
     if (!room || !identity) {
       sendJson(res, 400, { error: 'Paramètres "room" et "identity" requis.' });
@@ -26,6 +31,20 @@ module.exports = async (req, res) => {
     if (!apiKey || !apiSecret) {
       sendJson(res, 500, { error: 'LIVEKIT_API_KEY / LIVEKIT_API_SECRET non configurées sur Vercel.' });
       return;
+    }
+
+    // Plafond de participants pour le palier gratuit — vérifié côté serveur, pas juste cosmétique
+    if (plan === 'free') {
+      try {
+        const roomService = new RoomServiceClient(LIVEKIT_HTTPS_URL, apiKey, apiSecret);
+        const participants = await roomService.listParticipants(room);
+        if (participants.length >= FREE_PLAN_PARTICIPANT_LIMIT) {
+          sendJson(res, 429, { error: `Limite de ${FREE_PLAN_PARTICIPANT_LIMIT} participants atteinte (palier gratuit) — passez à Church pour plus de participants.` });
+          return;
+        }
+      } catch (listErr) {
+        // La salle n'existe pas encore (personne connecté) : c'est normal, on laisse passer
+      }
     }
 
     const at = new AccessToken(apiKey, apiSecret, { identity, name, ttl: '4h' });
