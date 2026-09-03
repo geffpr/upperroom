@@ -1189,9 +1189,33 @@ const BIBLE_BOOK_NAMES = [
   '2 Timothée','Tite','Philémon','Hébreux','Jacques','1 Pierre','2 Pierre','1 Jean','2 Jean','3 Jean',
   'Jude','Apocalypse'
 ];
-const sortedBookNames = [...BIBLE_BOOK_NAMES].sort((a,b) => b.length - a.length);
+
+// Déformations fréquentes de la reconnaissance vocale -> nom canonique
+// (le moteur du navigateur "entend" souvent autre chose que ce qui est dit)
+const SPOKEN_BOOK_ALIASES = {
+  'some':'Psaumes', 'somme':'Psaumes', 'sommes':'Psaumes', 'psaume':'Psaumes', 'saume':'Psaumes', 'saumes':'Psaumes',
+  'mathieu':'Matthieu', 'mathieux':'Matthieu', 'matthieux':'Matthieu',
+  'romain':'Romains',
+  'corinthien':'1 Corinthiens', 'corinthiens':'1 Corinthiens',
+  'galate':'Galates',
+  'philippien':'Philippiens',
+  'colossien':'Colossiens',
+  'thessalonicien':'1 Thessaloniciens',
+  'hébreu':'Hébreux', 'hebreu':'Hébreux',
+  'apocalypses':'Apocalypse',
+  'genese':'Genèse',
+  'exodes':'Exode'
+};
+
+const sortedBookNames = [...BIBLE_BOOK_NAMES, ...Object.keys(SPOKEN_BOOK_ALIASES)].sort((a,b) => b.length - a.length);
 const escapedBookNames = sortedBookNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-const VERSE_REGEX_SOURCE = `\\b(${escapedBookNames.join('|')})\\s+(?:chapitre\\s+)?(\\d{1,3})\\s*(?:verset[s]?|[:,])\\s*(\\d{1,3})(?:\\s*(?:à|-)\\s*(\\d{1,3}))?\\b`;
+// Tolère quelques mots de remplissage entre le chiffre du chapitre et "verset" (ex. "13 dans le verset 4")
+const VERSE_REGEX_SOURCE = `\\b(${escapedBookNames.join('|')})\\s+(?:chapitre\\s+)?(\\d{1,3})(?:\\s+\\S+){0,3}?\\s*(?:verset[s]?|[:,])\\s*(\\d{1,3})(?:\\s*(?:à|-)\\s*(\\d{1,3}))?\\b`;
+
+function canonicalizeBookName(rawName){
+  const key = rawName.toLowerCase();
+  return SPOKEN_BOOK_ALIASES[key] || rawName;
+}
 
 function detectVersesInText(rawText){
   const text = normalizeSpokenNumbers(rawText);
@@ -1199,10 +1223,11 @@ function detectVersesInText(rawText){
   const re = new RegExp(VERSE_REGEX_SOURCE, 'gi');
   let m;
   while((m = re.exec(text)) !== null){
+    const book = canonicalizeBookName(m[1]);
     const verseStart = parseInt(m[3],10);
     const verseEnd = m[4] ? parseInt(m[4],10) : null;
-    const reference = verseEnd ? `${m[1]} ${m[2]}:${verseStart}-${verseEnd}` : `${m[1]} ${m[2]}:${verseStart}`;
-    matches.push({ book: m[1], chapter: parseInt(m[2],10), verse: verseStart, verseEnd, reference });
+    const reference = verseEnd ? `${book} ${m[2]}:${verseStart}-${verseEnd}` : `${book} ${m[2]}:${verseStart}`;
+    matches.push({ book, chapter: parseInt(m[2],10), verse: verseStart, verseEnd, reference });
   }
   return matches;
 }
