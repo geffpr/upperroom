@@ -211,6 +211,26 @@
   .tile .mute-flag{opacity:.85;}
   .tile.main-teacher{grid-column:span 2; grid-row:span 2;}
 
+  /* ---------- MISE EN PAGE INTELLIGENTE QUAND UN ÉCRAN EST PARTAGÉ ---------- */
+  .video-grid.screen-sharing{
+    display:flex; flex-direction:column; gap:8px; padding:8px;
+  }
+  .video-grid.screen-sharing .screen-tile{
+    flex:1; min-height:0; aspect-ratio:unset; border-radius:12px;
+  }
+  .video-grid.screen-sharing .screen-tile video{
+    object-fit:contain; background:#000; /* respecte le ratio réel de l'écran partagé, sans le rogner */
+  }
+  .camera-strip{
+    display:flex; gap:8px; overflow-x:auto; flex-shrink:0; padding-bottom:2px;
+  }
+  .camera-strip .tile{
+    flex:0 0 130px; aspect-ratio:4/3; grid-column:unset; grid-row:unset;
+  }
+  @media (max-width:640px){
+    .camera-strip .tile{ flex-basis:96px; }
+  }
+
   .scripture-overlay{
     position:absolute; inset:0; background:rgba(15,15,16,0.82); backdrop-filter:blur(6px);
     display:flex; align-items:center; justify-content:center; padding:40px; opacity:0; pointer-events:none;
@@ -1041,6 +1061,7 @@ function getDisplayName(){
 
 function createRemoteTile(participant){
   const grid = document.getElementById('videoGrid');
+  const container = document.getElementById('cameraStrip') || grid;
   const tile = document.createElement('div');
   tile.className = 'tile';
   tile.id = 'tile-' + participant.identity;
@@ -1051,27 +1072,55 @@ function createRemoteTile(participant){
     <div class="avatar-fallback" style="background:#6D4AFF; display:flex;">${initial}</div>
     <div class="tag">🎙️ ${participant.name || participant.identity}</div>
   `;
-  grid.appendChild(tile);
+  container.appendChild(tile);
   return tile;
 }
 
 function createScreenShareTile(participant){
   const grid = document.getElementById('videoGrid');
   const tile = document.createElement('div');
-  tile.className = 'tile main-teacher'; // mis en avant, comme la tuile locale
+  tile.className = 'tile screen-tile';
   tile.id = 'screen-' + participant.identity;
   tile.style.background = '#0F0F10';
   tile.innerHTML = `
-    <video autoplay playsinline style="width:100%; height:100%; object-fit:contain;"></video>
+    <video autoplay playsinline></video>
     <div class="tag">🖥️ Écran partagé par ${participant.name || participant.identity}</div>
   `;
-  grid.insertBefore(tile, grid.firstChild.nextSibling); // juste après la tuile locale
+  grid.insertBefore(tile, grid.firstChild);
+  updateGridLayoutMode();
   return tile;
 }
 
 function removeScreenShareTile(participant){
   const tile = document.getElementById('screen-' + participant.identity);
   if(tile) tile.remove();
+  updateGridLayoutMode();
+}
+
+/* Bascule automatiquement entre la grille normale et le mode "écran partagé + bandeau caméras" */
+function updateGridLayoutMode(){
+  const grid = document.getElementById('videoGrid');
+  const hasScreenShare = !!grid.querySelector('.screen-tile');
+  let strip = document.getElementById('cameraStrip');
+
+  if(hasScreenShare){
+    grid.classList.add('screen-sharing');
+    if(!strip){
+      strip = document.createElement('div');
+      strip.id = 'cameraStrip';
+      strip.className = 'camera-strip';
+      grid.appendChild(strip);
+    }
+    // Déplace toutes les tuiles caméra (tout sauf l'écran partagé) dans le bandeau
+    grid.querySelectorAll(':scope > .tile:not(.screen-tile)').forEach(tile => strip.appendChild(tile));
+  } else {
+    if(strip){
+      // Remet les tuiles caméra directement dans la grille, puis retire le bandeau
+      Array.from(strip.children).forEach(tile => grid.appendChild(tile));
+      strip.remove();
+    }
+    grid.classList.remove('screen-sharing');
+  }
 }
 
 function removeRemoteTile(participant){
