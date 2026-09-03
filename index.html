@@ -1765,6 +1765,12 @@ async function handleAuthSubmit(){
       });
       if(error) throw error;
 
+      if(!data.session){
+        // La confirmation par e-mail est activée côté Supabase — pas de session active tant que ce n'est pas fait
+        showAuthError("Compte créé, mais vous devez d'abord confirmer votre e-mail (vérifiez votre boîte de réception) avant de pouvoir continuer.");
+        return;
+      }
+
       if(data.user){
         const { data: church, error: churchError } = await supabaseClient
           .from('churches')
