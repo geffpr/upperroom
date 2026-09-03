@@ -2439,6 +2439,10 @@ async function loadSessionsList(){
         <div class="study-info" data-action="participants" data-id="${s.id}" data-title="${escapeHtml(s.title)}" style="cursor:pointer;">
           <div class="t">${escapeHtml(s.title)}</div>
           <div class="m">${statusLabel}</div>
+          ${s.join_code ? `
+            <div class="session-code-chip" data-action="copy-code" data-code="${s.join_code}" title="Copier le code" style="display:inline-flex; align-items:center; gap:6px; margin-top:5px; background:var(--violet-tint); color:var(--violet-deep); font-size:11.5px; font-weight:600; letter-spacing:.5px; padding:3px 9px; border-radius:999px; cursor:pointer;">
+              ${s.join_code} <span style="opacity:.7;">📋</span>
+            </div>` : ''}
         </div>
         ${actionButtons}
       </div>`;
@@ -2460,6 +2464,18 @@ async function loadSessionsList(){
 
   container.querySelectorAll('[data-action="participants"]').forEach(el => {
     el.addEventListener('click', () => showSessionParticipants(el.dataset.id, el.dataset.title));
+  });
+
+  container.querySelectorAll('[data-action="copy-code"]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const code = el.dataset.code;
+      navigator.clipboard.writeText(code).then(() => {
+        toast('Code copié : ' + code);
+      }).catch(() => {
+        prompt('Copiez ce code :', code);
+      });
+    });
   });
 
   container.querySelectorAll('button[data-action]').forEach(btn => {
