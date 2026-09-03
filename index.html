@@ -2353,24 +2353,37 @@ async function loadSessionsList(){
   container.innerHTML = sessions.map(s => {
     const isLive = s.status === 'live';
     const isScheduled = s.status === 'scheduled';
+    const isEnded = s.status === 'ended';
     const isCreator = currentUser && s.created_by === currentUser.id;
     const dateLabel = s.scheduled_at
       ? new Date(s.scheduled_at).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short', timeZone: tz }) + ' ' + tzShort
       : '';
+
+    let statusLabel;
+    if(isLive) statusLabel = 'En direct';
+    else if(isEnded) statusLabel = 'Terminée';
+    else statusLabel = dateLabel ? 'Planifiée · ' + dateLabel : 'Planifiée';
+
+    let actionButtons = '';
+    if(isLive){
+      actionButtons += `<button class="btn btn-ghost btn-sm" data-action="copy-link" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">🔗</button>`;
+      if(isCreator) actionButtons += `<button class="btn btn-ghost btn-sm" data-action="end" data-id="${s.id}">Terminer</button>`;
+      actionButtons += `<button class="btn btn-violet btn-sm" data-action="join" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">Rejoindre</button>`;
+    } else if(isScheduled){
+      actionButtons = isCreator
+        ? `<button class="btn btn-violet btn-sm" data-action="start" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">Démarrer</button>`
+        : `<button class="btn btn-ghost btn-sm" data-action="join" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">Ouvrir</button>`;
+    }
+    // isEnded : aucun bouton d'action pour l'instant (pas de replay tant que l'enregistrement n'existe pas)
+
     return `
       <div class="study-row">
         ${isLive ? '<span class="live-dot"></span>' : ''}
         <div class="study-info">
           <div class="t">${escapeHtml(s.title)}</div>
-          <div class="m">${isLive ? 'En direct' : (dateLabel ? 'Planifiée · ' + dateLabel : 'Planifiée')}</div>
+          <div class="m">${statusLabel}</div>
         </div>
-        ${isLive ? `<button class="btn btn-ghost btn-sm" data-action="copy-link" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">🔗</button>` : ''}
-        ${isLive && isCreator ? `<button class="btn btn-ghost btn-sm" data-action="end" data-id="${s.id}">Terminer</button>` : ''}
-        ${isScheduled && isCreator
-          ? `<button class="btn btn-violet btn-sm" data-action="start" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">Démarrer</button>`
-          : `<button class="btn ${isLive ? 'btn-violet' : 'btn-ghost'} btn-sm" data-action="join" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">
-              ${isLive ? 'Rejoindre' : 'Ouvrir'}
-             </button>`}
+        ${actionButtons}
       </div>`;
   }).join('');
 
@@ -2761,8 +2774,16 @@ function copyShareLink(){
 
 async function endSession(){
   const transcriptSnapshot = sessionTranscript;
+  const wasHost = isSessionHost;
+  const roomName = sessionStorage.getItem('upperroom_room_name');
   leaveLiveKitRoom();
   showPage('recap');
+
+  // Si c'est le créateur qui quitte une vraie session, on la marque terminée en base
+  if(wasHost && roomName && UUID_REGEX.test(roomName) && !isDevMode){
+    const { error } = await supabaseClient.from('sessions').update({ status: 'ended' }).eq('id', roomName);
+    if(error) console.error('Erreur clôture session:', error);
+  }
 
   document.getElementById('recapSubtitle').textContent = 'Génération du récap en cours…';
   document.getElementById('recapSummary').textContent = "Un instant, l'IA analyse la session…";
