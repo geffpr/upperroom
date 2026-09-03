@@ -2320,21 +2320,51 @@ async function loadSessionsList(){
     return;
   }
 
+  const escapeHtml = (str) => String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
   container.innerHTML = sessions.map(s => {
     const isLive = s.status === 'live';
+    const isCreator = currentUser && s.created_by === currentUser.id;
     const dateLabel = s.scheduled_at ? new Date(s.scheduled_at).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' }) : '';
     return `
       <div class="study-row">
         ${isLive ? '<span class="live-dot"></span>' : ''}
         <div class="study-info">
-          <div class="t">${s.title}</div>
+          <div class="t">${escapeHtml(s.title)}</div>
           <div class="m">${isLive ? 'En direct' : (dateLabel ? 'Planifiée · ' + dateLabel : 'Planifiée')}</div>
         </div>
-        <button class="btn ${isLive ? 'btn-violet' : 'btn-ghost'} btn-sm" onclick="joinRealSession('${s.id}', ${JSON.stringify(s.title)})">
+        ${isLive ? `<button class="btn btn-ghost btn-sm" data-action="copy-link" data-id="${s.id}" data-title="${escapeHtml(s.title)}">🔗</button>` : ''}
+        ${isLive && isCreator ? `<button class="btn btn-ghost btn-sm" data-action="end" data-id="${s.id}">Terminer</button>` : ''}
+        <button class="btn ${isLive ? 'btn-violet' : 'btn-ghost'} btn-sm" data-action="join" data-id="${s.id}" data-title="${escapeHtml(s.title)}">
           ${isLive ? 'Rejoindre' : 'Ouvrir'}
         </button>
       </div>`;
   }).join('');
+
+  container.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const title = btn.dataset.title;
+      if(btn.dataset.action === 'join'){
+        joinRealSession(id, title);
+      } else if(btn.dataset.action === 'copy-link'){
+        const url = new URL(window.location.origin + window.location.pathname);
+        url.searchParams.set('room', id);
+        url.searchParams.set('title', title);
+        navigator.clipboard.writeText(url.toString()).then(() => {
+          toast('Lien copié : ' + url.toString());
+        }).catch(() => {
+          prompt('Copiez ce lien pour inviter des participants :', url.toString());
+        });
+      } else if(btn.dataset.action === 'end'){
+        if(!confirm('Terminer cette session pour tous les participants ?')) return;
+        const { error } = await supabaseClient.from('sessions').update({ status: 'ended' }).eq('id', id);
+        if(error){ toast('Erreur lors de la clôture de la session'); return; }
+        toast('Session terminée');
+        loadSessionsList();
+      }
+    });
+  });
 }
 
 /* ---------- BIBLIOTHÈQUE (study_programs) ---------- */
