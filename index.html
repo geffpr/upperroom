@@ -679,6 +679,17 @@
         </div>
       </div>
       <div class="field">
+        <label>Fuseau horaire <span style="color:var(--gray); font-weight:400;">(utilisé pour l'affichage des horaires d'étude)</span></label>
+        <select id="accountTimezone" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:11px 13px; font-size:14px; background:var(--bg); font-family:inherit;">
+          <option value="Europe/Paris">France (Europe/Paris)</option>
+          <option value="America/Port-au-Prince">Haïti (America/Port-au-Prince)</option>
+          <option value="America/New_York">États-Unis — Est (America/New_York)</option>
+          <option value="America/Chicago">États-Unis — Centre (America/Chicago)</option>
+          <option value="America/Los_Angeles">États-Unis — Ouest (America/Los_Angeles)</option>
+          <option value="America/Toronto">Canada — Est (America/Toronto)</option>
+        </select>
+      </div>
+      <div class="field">
         <label>Nouveau mot de passe <span style="color:var(--gray); font-weight:400;">(laisser vide pour ne pas changer)</span></label>
         <input type="password" id="accountNewPassword" placeholder="••••••••">
       </div>
@@ -2009,7 +2020,7 @@ async function handleAuthSubmit(){
 
         const { error: userUpdateError } = await supabaseClient
           .from('users')
-          .update({ church_id: church.id, global_role: 'owner', gender, title })
+          .update({ church_id: church.id, global_role: 'owner', gender, title, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })
           .eq('id', data.user.id);
         if(userUpdateError) throw userUpdateError;
       }
@@ -2159,6 +2170,7 @@ async function loadAccountPage(){
   document.getElementById('accountFullName').value = userRow.full_name || '';
   document.getElementById('accountGender').value = userRow.gender || '';
   document.getElementById('accountTitle').value = userRow.title || 'membre';
+  document.getElementById('accountTimezone').value = userRow.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   document.getElementById('accountNewPassword').value = '';
 }
 
@@ -2178,13 +2190,14 @@ async function saveAccountChanges(){
   const fullName = document.getElementById('accountFullName').value.trim();
   const gender = document.getElementById('accountGender').value;
   const title = document.getElementById('accountTitle').value;
+  const timezone = document.getElementById('accountTimezone').value;
   const newPassword = document.getElementById('accountNewPassword').value;
 
   if(!fullName){ showAccountError('Le nom ne peut pas être vide.'); return; }
 
   const { error: updateError } = await supabaseClient
     .from('users')
-    .update({ full_name: fullName, gender: gender || null, title })
+    .update({ full_name: fullName, gender: gender || null, title, timezone })
     .eq('id', currentUser.id);
 
   if(updateError){
@@ -2210,6 +2223,7 @@ async function saveAccountChanges(){
   currentUser.full_name = fullName;
   currentUser.gender = gender || null;
   currentUser.title = title;
+  currentUser.timezone = timezone;
   updateNavAuthState();
 }
 
@@ -2333,11 +2347,16 @@ async function loadSessionsList(){
   }
 
   const escapeHtml = (str) => String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const tz = (currentUser && currentUser.timezone) || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tzShort = new Intl.DateTimeFormat('fr-FR', { timeZoneName: 'short', timeZone: tz }).formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value || '';
 
   container.innerHTML = sessions.map(s => {
     const isLive = s.status === 'live';
+    const isScheduled = s.status === 'scheduled';
     const isCreator = currentUser && s.created_by === currentUser.id;
-    const dateLabel = s.scheduled_at ? new Date(s.scheduled_at).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' }) : '';
+    const dateLabel = s.scheduled_at
+      ? new Date(s.scheduled_at).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short', timeZone: tz }) + ' ' + tzShort
+      : '';
     return `
       <div class="study-row">
         ${isLive ? '<span class="live-dot"></span>' : ''}
@@ -2347,9 +2366,11 @@ async function loadSessionsList(){
         </div>
         ${isLive ? `<button class="btn btn-ghost btn-sm" data-action="copy-link" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">🔗</button>` : ''}
         ${isLive && isCreator ? `<button class="btn btn-ghost btn-sm" data-action="end" data-id="${s.id}">Terminer</button>` : ''}
-        <button class="btn ${isLive ? 'btn-violet' : 'btn-ghost'} btn-sm" data-action="join" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">
-          ${isLive ? 'Rejoindre' : 'Ouvrir'}
-        </button>
+        ${isScheduled && isCreator
+          ? `<button class="btn btn-violet btn-sm" data-action="start" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">Démarrer</button>`
+          : `<button class="btn ${isLive ? 'btn-violet' : 'btn-ghost'} btn-sm" data-action="join" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-code="${s.join_code || ''}">
+              ${isLive ? 'Rejoindre' : 'Ouvrir'}
+             </button>`}
       </div>`;
   }).join('');
 
@@ -2360,6 +2381,10 @@ async function loadSessionsList(){
       const code = btn.dataset.code;
       if(btn.dataset.action === 'join'){
         joinRealSession(id, title, false, code);
+      } else if(btn.dataset.action === 'start'){
+        const { error } = await supabaseClient.from('sessions').update({ status: 'live' }).eq('id', id);
+        if(error){ toast('Erreur lors du démarrage de la session'); return; }
+        joinRealSession(id, title, true, code);
       } else if(btn.dataset.action === 'copy-link'){
         const url = new URL(window.location.origin + window.location.pathname);
         url.searchParams.set('code', code || id);
