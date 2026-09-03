@@ -81,30 +81,49 @@ function getVerseText(book, chapterNum, verseNum) {
   return verse ? verse.Text : null;
 }
 
+function getVerseRangeText(book, chapterNum, verseStart, verseEnd) {
+  const parts = [];
+  for (let v = verseStart; v <= verseEnd; v++) {
+    const text = getVerseText(book, chapterNum, v);
+    if (text) parts.push({ verse: v, text });
+  }
+  return parts;
+}
+
 module.exports = async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
-    // Accepte soit ?ref=Jean 3:16, soit ?book=Jean&chapter=3&verse=16
-    let bookName, chapterNum, verseNum;
+    let bookName, chapterNum, verseStart, verseEnd;
 
     const ref = url.searchParams.get('ref');
     if (ref) {
-      const match = ref.trim().match(/^(.+?)\s+(\d+)\s*:\s*(\d+)$/);
+      // Accepte "Livre chapitre:verset" OU "Livre chapitre:verset-verset" (plage)
+      const match = ref.trim().match(/^(.+?)\s+(\d+)\s*:\s*(\d+)(?:\s*-\s*(\d+))?$/);
       if (!match) {
-        sendJson(res, 400, { error: 'Format de référence invalide. Attendu : "Livre chapitre:verset", ex. "Jean 3:16".' });
+        sendJson(res, 400, { error: 'Format de référence invalide. Attendu : "Livre chapitre:verset" ou "Livre chapitre:verset-verset", ex. "Psaumes 23:1-8".' });
         return;
       }
       bookName = match[1];
       chapterNum = parseInt(match[2], 10);
-      verseNum = parseInt(match[3], 10);
+      verseStart = parseInt(match[3], 10);
+      verseEnd = match[4] ? parseInt(match[4], 10) : verseStart;
     } else {
       bookName = url.searchParams.get('book');
       chapterNum = parseInt(url.searchParams.get('chapter'), 10);
-      verseNum = parseInt(url.searchParams.get('verse'), 10);
+      verseStart = parseInt(url.searchParams.get('verse'), 10);
+      verseEnd = url.searchParams.get('verseEnd') ? parseInt(url.searchParams.get('verseEnd'), 10) : verseStart;
     }
 
-    if (!bookName || !chapterNum || !verseNum) {
-      sendJson(res, 400, { error: 'Paramètres requis : ref="Livre chapitre:verset" OU book, chapter, verse.' });
+    if (!bookName || !chapterNum || !verseStart) {
+      sendJson(res, 400, { error: 'Paramètres requis : ref="Livre chapitre:verset[-verset]" OU book, chapter, verse.' });
+      return;
+    }
+    if (verseEnd < verseStart) {
+      sendJson(res, 400, { error: 'Le verset de fin doit être supérieur ou égal au verset de départ.' });
+      return;
+    }
+    if (verseEnd - verseStart > 40) {
+      sendJson(res, 400, { error: 'Plage trop large (40 versets maximum à la fois).' });
       return;
     }
 
@@ -114,18 +133,41 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const text = getVerseText(book, chapterNum, verseNum);
-    if (!text) {
-      sendJson(res, 404, { error: `Verset ${book.canonicalName} ${chapterNum}:${verseNum} introuvable.` });
+    const isRange = verseEnd > verseStart;
+
+    if (!isRange) {
+      const text = getVerseText(book, chapterNum, verseStart);
+      if (!text) {
+        sendJson(res, 404, { error: `Verset ${book.canonicalName} ${chapterNum}:${verseStart} introuvable.` });
+        return;
+      }
+      sendJson(res, 200, {
+        book: book.canonicalName,
+        chapter: chapterNum,
+        verse: verseStart,
+        reference: `${book.canonicalName} ${chapterNum}:${verseStart}`,
+        text,
+        version: 'LSG'
+      });
       return;
     }
+
+    // Plage de versets
+    const verses = getVerseRangeText(book, chapterNum, verseStart, verseEnd);
+    if (verses.length === 0) {
+      sendJson(res, 404, { error: `Aucun verset trouvé pour ${book.canonicalName} ${chapterNum}:${verseStart}-${verseEnd}.` });
+      return;
+    }
+    const combinedText = verses.map(v => `[${v.verse}] ${v.text}`).join(' ');
 
     sendJson(res, 200, {
       book: book.canonicalName,
       chapter: chapterNum,
-      verse: verseNum,
-      reference: `${book.canonicalName} ${chapterNum}:${verseNum}`,
-      text,
+      verseStart,
+      verseEnd: verses[verses.length - 1].verse,
+      reference: `${book.canonicalName} ${chapterNum}:${verseStart}-${verses[verses.length - 1].verse}`,
+      text: combinedText,
+      verses,
       version: 'LSG'
     });
 
