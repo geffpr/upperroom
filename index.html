@@ -707,7 +707,7 @@
         </div>
       </div>
       <p id="roomStatus" style="text-align:center; font-size:12.5px; color:var(--gray); margin-top:8px;">Connexion à la salle…</p>
-      <p id="transcriptionStatus" style="text-align:center; font-size:12px; color:var(--gray); margin-top:2px;"></p>
+      <p id="transcriptionStatus" style="text-align:center; font-size:12.5px; color:var(--violet-deep); margin-top:2px; min-height:16px;"></p>
 
       <div class="lang-picker">
         <select id="captionLang" title="Langue des sous-titres">
@@ -1242,17 +1242,29 @@ function startTranscription(){
   speechRecognizer = new SpeechRecognition();
   speechRecognizer.lang = 'fr-FR';
   speechRecognizer.continuous = true;
-  speechRecognizer.interimResults = false;
+  speechRecognizer.interimResults = true; // pour un vrai retour en direct, pas une boîte noire
+
+  speechRecognizer.onstart = () => {
+    restartAttempts = 0;
+    setTranscriptionStatus('🎙️ En écoute…');
+  };
 
   speechRecognizer.onresult = (event) => {
+    let interimText = '';
     for(let i = event.resultIndex; i < event.results.length; i++){
+      const chunk = event.results[i][0].transcript.trim();
       if(event.results[i].isFinal){
-        const chunk = event.results[i][0].transcript.trim();
         if(chunk){
           sessionTranscript += ' ' + chunk;
           detectVersesInText(chunk).forEach(handleDetectedVerse);
         }
+      } else {
+        interimText += chunk + ' ';
       }
+    }
+    // Retour en direct : affiche ce qui est entendu, même avant confirmation finale
+    if(interimText.trim()){
+      setTranscriptionStatus('🎙️ « ' + interimText.trim() + ' »');
     }
   };
 
@@ -1260,24 +1272,29 @@ function startTranscription(){
     console.warn('Erreur reconnaissance vocale:', event.error);
     if(event.error === 'not-allowed' || event.error === 'service-not-allowed'){
       transcriptionShouldBeActive = false;
-      setTranscriptionStatus('Permission de reconnaissance vocale refusée.');
+      setTranscriptionStatus('❌ Permission micro refusée pour la transcription (différente de l\'autorisation caméra/micro LiveKit — vérifiez les réglages du navigateur).');
+    } else if(event.error === 'no-speech'){
+      // Silence normal, pas une vraie erreur — on laisse onend gérer le redémarrage
+    } else if(event.error === 'audio-capture'){
+      setTranscriptionStatus('❌ Aucun micro détecté pour la transcription.');
+    } else if(event.error === 'network'){
+      setTranscriptionStatus('⚠️ Connexion instable pour la transcription — nouvelle tentative…');
     }
   };
 
   speechRecognizer.onend = () => {
     if(!transcriptionShouldBeActive) return;
     restartAttempts++;
-    if(restartAttempts > 8){
+    if(restartAttempts > 15){
       setTranscriptionStatus('Transcription interrompue (trop de coupures) — le partage manuel de versets reste disponible.');
       return;
     }
-    setTranscriptionStatus('🎙️ Transcription active');
     try{ speechRecognizer.start(); }catch(e){ /* déjà démarré, on ignore */ }
   };
 
   try{
     speechRecognizer.start();
-    setTranscriptionStatus('🎙️ Transcription active');
+    setTranscriptionStatus('🎙️ Démarrage de la transcription…');
   }catch(e){
     setTranscriptionStatus("Impossible de démarrer la transcription.");
   }
