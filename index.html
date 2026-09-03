@@ -1274,6 +1274,8 @@ function startTranscription(){
     setTranscriptionStatus('🎙️ En écoute…');
   };
 
+  let recentTranscriptWindow = ''; // fenêtre glissante pour recoller les phrases coupées entre deux segments
+
   speechRecognizer.onresult = (event) => {
     let interimText = '';
     for(let i = event.resultIndex; i < event.results.length; i++){
@@ -1281,7 +1283,10 @@ function startTranscription(){
       if(event.results[i].isFinal){
         if(chunk){
           sessionTranscript += ' ' + chunk;
-          detectVersesInText(chunk).forEach(handleDetectedVerse);
+          // Fenêtre glissante : combine avec la fin du morceau précédent pour rattraper
+          // une référence coupée en deux par le moteur de reconnaissance (ex. "...Psaume 23" / "verset 4")
+          recentTranscriptWindow = (recentTranscriptWindow + ' ' + chunk).slice(-250);
+          detectVersesInText(recentTranscriptWindow).forEach(handleDetectedVerse);
         }
       } else {
         interimText += chunk + ' ';
@@ -1290,6 +1295,8 @@ function startTranscription(){
     // Retour en direct : affiche ce qui est entendu, même avant confirmation finale
     if(interimText.trim()){
       setTranscriptionStatus('🎙️ « ' + interimText.trim() + ' »');
+      // Détection aussi sur le texte provisoire : souvent plus complet qu'un fragment déjà finalisé
+      detectVersesInText(interimText).forEach(handleDetectedVerse);
     }
   };
 
