@@ -300,6 +300,12 @@
 
   /* bible panel */
   .bible-search{padding:14px; border-bottom:1px solid var(--gray-line);}
+  .book-suggestions{display:flex; flex-wrap:wrap; gap:6px; padding:0 14px 12px;}
+  .book-suggestions button{
+    background:var(--violet-tint); color:var(--violet-deep); border:none; border-radius:999px;
+    padding:5px 12px; font-size:12.5px; font-weight:500; cursor:pointer;
+  }
+  .book-suggestions button:hover{background:var(--sand-deep);}
   .bible-search input{width:100%; border:1px solid var(--gray-line); border-radius:999px; padding:10px 16px; font-size:13.5px;}
   .verse-list{flex:1; overflow-y:auto; padding:8px 10px;}
   .verse-item{padding:12px; border-radius:10px; cursor:pointer; transition:background .15s;}
@@ -733,6 +739,7 @@
           <div class="bible-search">
             <input type="text" id="bibleSearchInput" placeholder="Ex. Jean 3:16, Romains 8:28…">
           </div>
+          <div class="book-suggestions" id="bookSuggestions"></div>
           <div class="verse-list" id="verseList"></div>
         </div>
 
@@ -1705,9 +1712,57 @@ async function searchBibleVerse(query){
 const bibleSearchInput = document.getElementById('bibleSearchInput');
 let bibleSearchDebounce = null;
 
+/* ---------- SUGGESTIONS DE LIVRES PENDANT LA FRAPPE ---------- */
+function normalizeForMatch(s){
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,'');
+}
+
+// Extrait le début "nom de livre" de ce qui est tapé, y compris pour les livres numérotés (1 Jean, 2 Pierre, 1 Thessaloniciens…)
+function extractBookPrefix(raw){
+  const trimmed = raw.trimStart();
+  const numberedMatch = trimmed.match(/^([123])\s*([a-zà-ÿ]*)/i);
+  if(numberedMatch && numberedMatch[2]){
+    return numberedMatch[1] + ' ' + numberedMatch[2];
+  }
+  const plainMatch = trimmed.match(/^[a-zà-ÿ]+/i);
+  return plainMatch ? plainMatch[0] : '';
+}
+
+function getBookSuggestions(rawInput){
+  const trimmed = rawInput.trimStart();
+  const prefix = extractBookPrefix(trimmed);
+  if(!prefix) return [];
+
+  // Dès qu'un chiffre de chapitre apparaît après le nom du livre, on arrête de suggérer
+  const remainder = trimmed.slice(prefix.length);
+  if(/\d/.test(remainder)) return [];
+
+  // "1" ou "2" tout seul, sans lettre encore : trop ambigu (1 Samuel ? 1 Corinthiens ? …) — on attend une lettre de plus
+  if(/^[123]$/.test(prefix.replace(/\s/g,''))) return [];
+
+  const normPrefix = normalizeForMatch(prefix);
+  if(normPrefix.length < 1) return [];
+  return BIBLE_BOOK_NAMES.filter(b => normalizeForMatch(b).startsWith(normPrefix)).slice(0, 6);
+}
+
+function renderBookSuggestions(rawInput){
+  const box = document.getElementById('bookSuggestions');
+  const suggestions = getBookSuggestions(rawInput);
+  if(suggestions.length === 0){ box.innerHTML = ''; return; }
+  box.innerHTML = suggestions.map(name => `<button type="button" data-book="${name}">${name}</button>`).join('');
+  box.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      bibleSearchInput.value = btn.dataset.book + ' ';
+      bibleSearchInput.focus();
+      box.innerHTML = '';
+    });
+  });
+}
+
 bibleSearchInput.addEventListener('input', () => {
   const value = bibleSearchInput.value.trim();
   clearTimeout(bibleSearchDebounce);
+  renderBookSuggestions(bibleSearchInput.value);
   if(!value){ renderVerseList(); return; }
   // Recherche automatique après une courte pause de frappe — pas besoin d'appuyer sur Entrée
   bibleSearchDebounce = setTimeout(() => searchBibleVerse(value), 350);
@@ -1715,6 +1770,7 @@ bibleSearchInput.addEventListener('input', () => {
 bibleSearchInput.addEventListener('keydown', (e) => {
   if(e.key === 'Enter' && bibleSearchInput.value.trim()){
     clearTimeout(bibleSearchDebounce);
+    document.getElementById('bookSuggestions').innerHTML = '';
     searchBibleVerse(bibleSearchInput.value.trim());
   }
 });
