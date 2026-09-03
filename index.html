@@ -1675,12 +1675,15 @@ function renderVerseList(){
 renderVerseList();
 
 /* Recherche réelle dans la LSG complète via /api/verse */
+let bibleSearchToken = 0;
 async function searchBibleVerse(query){
+  const myToken = ++bibleSearchToken;
   const list = document.getElementById('verseList');
   list.innerHTML = `<p style="padding:14px; font-size:13px; color:var(--gray);">Recherche…</p>`;
   try{
     const res = await fetch('/api/verse?ref=' + encodeURIComponent(query));
     const data = await res.json();
+    if(myToken !== bibleSearchToken) return; // une recherche plus récente a déjà été lancée, on ignore cette réponse
     if(!res.ok){
       list.innerHTML = `<p style="padding:14px; font-size:13px; color:var(--gray);">${data.error || 'Verset introuvable.'}</p>`;
       return;
@@ -1694,13 +1697,24 @@ async function searchBibleVerse(query){
       </div>`;
     document.getElementById('showSearchedVerseBtn').addEventListener('click', () => showScripture(verse));
   }catch(err){
+    if(myToken !== bibleSearchToken) return;
     list.innerHTML = `<p style="padding:14px; font-size:13px; color:var(--gray);">Erreur de connexion — réessayez.</p>`;
   }
 }
 
 const bibleSearchInput = document.getElementById('bibleSearchInput');
+let bibleSearchDebounce = null;
+
+bibleSearchInput.addEventListener('input', () => {
+  const value = bibleSearchInput.value.trim();
+  clearTimeout(bibleSearchDebounce);
+  if(!value){ renderVerseList(); return; }
+  // Recherche automatique après une courte pause de frappe — pas besoin d'appuyer sur Entrée
+  bibleSearchDebounce = setTimeout(() => searchBibleVerse(value), 350);
+});
 bibleSearchInput.addEventListener('keydown', (e) => {
   if(e.key === 'Enter' && bibleSearchInput.value.trim()){
+    clearTimeout(bibleSearchDebounce);
     searchBibleVerse(bibleSearchInput.value.trim());
   }
 });
