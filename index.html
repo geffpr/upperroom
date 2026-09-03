@@ -582,49 +582,16 @@
   <div class="dash-wrap">
     <div class="dash-head">
       <div>
-        <h1>Bonjour, Roosevelt 👋</h1>
-        <p>Église Bethel Paris — 3 études cette semaine</p>
+        <h1 id="dashGreeting">Bonjour 👋</h1>
+        <p id="dashSubtitle">Chargement…</p>
       </div>
       <button class="btn btn-primary" onclick="showPage('create-session')">+ Nouvelle étude</button>
     </div>
     <div class="dash-grid">
       <div class="card">
         <div class="card-title">Mes études <button class="btn btn-ghost btn-sm">Voir tout</button></div>
-
-        <div class="study-row">
-          <span class="live-dot"></span>
-          <div class="study-info">
-            <div class="t">Jean 3 — La nouvelle naissance</div>
-            <div class="m">En direct · Pasteur Roosevelt · 27 participants</div>
-          </div>
-          <div class="avatar-stack">
-            <span style="background:#6D4AFF">R</span><span style="background:#EF4444">M</span><span style="background:#F59E0B">S</span>
-          </div>
-          <button class="btn btn-violet btn-sm" onclick="showPage('room')">Rejoindre</button>
-        </div>
-
-        <div class="study-row">
-          <div class="study-info">
-            <div class="t">Jeunes adultes — Vendredi 20h00</div>
-            <div class="m">Enseignant : David · Traduction FR → HT activée</div>
-          </div>
-          <button class="btn btn-ghost btn-sm">Planifiée</button>
-        </div>
-
-        <div class="study-row">
-          <div class="study-info">
-            <div class="t">Groupe de prière — Dimanche 18h00</div>
-            <div class="m">Enseignant : Sarah · Salle privée</div>
-          </div>
-          <button class="btn btn-ghost btn-sm">Planifiée</button>
-        </div>
-
-        <div class="study-row">
-          <div class="study-info">
-            <div class="t">École biblique — Niveau 1, module 4</div>
-            <div class="m">143 étudiants · 8 enseignants</div>
-          </div>
-          <button class="btn btn-ghost btn-sm">Ouvrir</button>
+        <div id="sessionsListContainer">
+          <p style="padding:14px 0; font-size:13px; color:var(--gray);">Chargement des études…</p>
         </div>
       </div>
 
@@ -1005,6 +972,7 @@ function showPage(id){
   document.querySelectorAll('.navlinks button').forEach(b=>b.classList.toggle('active', b.dataset.page===id));
   window.scrollTo({top:0, behavior:'instant'});
   if(id==='room' && !cameraInitialized){ initCamera(); }
+  if(id==='dashboard'){ loadDashboardContext(); }
 }
 document.querySelectorAll('.navlinks button').forEach(b=>b.addEventListener('click', ()=>showPage(b.dataset.page)));
 
@@ -1840,7 +1808,9 @@ function traduireErreurAuth(message){
 
 /* Raccourci de développement — saute complètement l'authentification.
    N'appelle pas Supabase, ne crée aucun compte. À retirer avant le lancement réel. */
+let isDevMode = false;
 function skipAuthDev(){
+  isDevMode = true;
   toast('Mode dev — connexion ignorée');
   showPage('dashboard');
 }
@@ -1873,30 +1843,143 @@ function slugifyRoomName(title){
     .replace(/(^-|-$)/g, '') || 'etude';
 }
 
-function createSession(){
+/* ---------- CONTEXTE RÉEL : utilisateur, église, sessions (Supabase) ---------- */
+let currentUser = null;
+let currentChurch = null;
+
+async function loadDashboardContext(){
+  if(isDevMode){
+    document.getElementById('dashGreeting').textContent = 'Bonjour 👋';
+    document.getElementById('dashSubtitle').textContent = 'Mode démonstration — aucune donnée réelle (non connecté)';
+    document.getElementById('sessionsListContainer').innerHTML =
+      `<p style="padding:14px 0; font-size:13px; color:var(--gray);">Connectez-vous avec un vrai compte pour voir vos études.</p>`;
+    return;
+  }
+
+  const { data: sessionData } = await supabaseClient.auth.getSession();
+  if(!sessionData.session){
+    showPage('login');
+    return;
+  }
+
+  const { data: userRow, error: userError } = await supabaseClient
+    .from('users').select('*').eq('id', sessionData.session.user.id).single();
+  if(userError || !userRow){
+    toast('Impossible de charger votre profil');
+    return;
+  }
+  currentUser = userRow;
+
+  document.getElementById('dashGreeting').textContent = 'Bonjour, ' + (userRow.full_name || 'vous').split(' ')[0] + ' 👋';
+
+  if(!userRow.church_id){
+    document.getElementById('dashSubtitle').textContent = 'Aucune église associée à ce compte pour l\'instant';
+    document.getElementById('sessionsListContainer').innerHTML = '';
+    return;
+  }
+
+  const { data: churchRow } = await supabaseClient.from('churches').select('*').eq('id', userRow.church_id).single();
+  currentChurch = churchRow;
+  document.getElementById('dashSubtitle').textContent = (churchRow ? churchRow.name : 'Votre église');
+
+  loadSessionsList();
+}
+
+async function loadSessionsList(){
+  const container = document.getElementById('sessionsListContainer');
+  if(!currentChurch){ container.innerHTML = ''; return; }
+
+  const { data: sessions, error } = await supabaseClient
+    .from('sessions')
+    .select('*')
+    .eq('church_id', currentChurch.id)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  if(error){
+    container.innerHTML = `<p style="padding:14px 0; font-size:13px; color:var(--gray);">Erreur de chargement des études.</p>`;
+    return;
+  }
+
+  document.getElementById('dashSubtitle').textContent =
+    (currentChurch.name) + ' — ' + sessions.length + ' étude' + (sessions.length !== 1 ? 's' : '');
+
+  if(sessions.length === 0){
+    container.innerHTML = `<p style="padding:14px 0; font-size:13px; color:var(--gray);">Aucune étude pour l'instant — cliquez sur "+ Nouvelle étude" pour commencer.</p>`;
+    return;
+  }
+
+  container.innerHTML = sessions.map(s => {
+    const isLive = s.status === 'live';
+    const dateLabel = s.scheduled_at ? new Date(s.scheduled_at).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' }) : '';
+    return `
+      <div class="study-row">
+        ${isLive ? '<span class="live-dot"></span>' : ''}
+        <div class="study-info">
+          <div class="t">${s.title}</div>
+          <div class="m">${isLive ? 'En direct' : (dateLabel ? 'Planifiée · ' + dateLabel : 'Planifiée')}</div>
+        </div>
+        <button class="btn ${isLive ? 'btn-violet' : 'btn-ghost'} btn-sm" onclick="joinRealSession('${s.id}', ${JSON.stringify(s.title)})">
+          ${isLive ? 'Rejoindre' : 'Ouvrir'}
+        </button>
+      </div>`;
+  }).join('');
+}
+
+function joinRealSession(sessionId, title){
+  sessionStorage.setItem('upperroom_room_name', sessionId);
+  document.getElementById('roomTitleTag').textContent = title;
+  showPage('room');
+}
+
+async function createSession(){
   const title = document.getElementById('newSessionTitle').value.trim();
   if(!title){
     toast('Donnez un titre à votre étude');
     return;
   }
+  if(isDevMode || !currentUser || !currentChurch){
+    toast('Connectez-vous avec un vrai compte pour créer une étude enregistrée');
+    return;
+  }
 
-  if(newSessionType === 'instant'){
-    document.getElementById('roomTitleTag').textContent = title;
-    sessionStorage.setItem('upperroom_room_name', slugifyRoomName(title));
-    // Pas encore branché à Supabase — on ouvre directement la salle live pour démo
-    toast('Session "' + title + '" lancée');
-    showPage('room');
+  const accessCode = document.getElementById('newSessionCode').value.trim() || null;
+  const isInstant = newSessionType === 'instant';
+  const scheduledAt = isInstant ? null : document.getElementById('newSessionDate').value;
+
+  if(!isInstant && !scheduledAt){
+    toast('Choisissez une date et une heure');
+    return;
+  }
+
+  const { data: newSession, error } = await supabaseClient
+    .from('sessions')
+    .insert({
+      church_id: currentChurch.id,
+      title,
+      session_type: isInstant ? 'instant' : 'scheduled',
+      scheduled_at: isInstant ? null : new Date(scheduledAt).toISOString(),
+      status: isInstant ? 'live' : 'scheduled',
+      access_code: accessCode,
+      created_by: currentUser.id
+    })
+    .select()
+    .single();
+
+  if(error){
+    console.error('Erreur création session:', error);
+    toast('Erreur lors de la création de l\'étude');
+    return;
+  }
+
+  document.getElementById('newSessionTitle').value = '';
+  document.getElementById('newSessionDate').value = '';
+  document.getElementById('newSessionCode').value = '';
+
+  if(isInstant){
+    joinRealSession(newSession.id, newSession.title);
   } else {
-    const date = document.getElementById('newSessionDate').value;
-    if(!date){
-      toast('Choisissez une date et une heure');
-      return;
-    }
-    // Pas encore branché à Supabase — confirmation seulement pour l'instant
-    toast('Étude "' + title + '" planifiée — elle apparaîtra bientôt dans votre liste');
-    document.getElementById('newSessionTitle').value = '';
-    document.getElementById('newSessionDate').value = '';
-    document.getElementById('newSessionCode').value = '';
+    toast('Étude "' + title + '" planifiée');
     showPage('dashboard');
   }
 }
