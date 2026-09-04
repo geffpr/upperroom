@@ -2101,6 +2101,10 @@ async function initCamera(){
           handleInterpreterStatus(msg.identity, msg.active);
         } else if(msg.type === 'mic_control'){
           applyMicControlMode(msg.mode);
+        } else if(msg.type === 'presence_info'){
+          if(msg.userId) identityToUserId[msg.identity] = msg.userId;
+        } else if(msg.type === 'organizer_status'){
+          handleOrganizerStatus(msg.identity, msg.active);
         }
       }catch(e){ /* message non reconnu, ignoré */ }
     });
@@ -2113,9 +2117,19 @@ async function initCamera(){
       updateConnectionQualityDisplay(quality, participant);
     });
 
+    liveKitRoom.on(RoomEvent.ParticipantConnected, () => {
+      broadcastMyPresenceInfo(); // le nouvel arrivant a besoin de connaître tout le monde
+    });
+
     await liveKitRoom.connect(LIVEKIT_URL, tokenData.token);
     await liveKitRoom.localParticipant.setCameraEnabled(true);
     await liveKitRoom.localParticipant.setMicrophoneEnabled(true);
+
+    // Un compte pré-désigné co-organisateur depuis le dashboard obtient les droits, même sans avoir cliqué "Démarrer"
+    if(!isSessionHost && currentUser && !isDevMode){
+      const preassigned = await checkPreassignedOrganizer(roomName, currentUser.id);
+      if(preassigned) isSessionHost = true;
+    }
 
     // Attache la vidéo locale à la tuile "Vous"
     liveKitRoom.localParticipant.videoTrackPublications.forEach(pub => {
@@ -2130,10 +2144,9 @@ async function initCamera(){
     if(!sessionSignalChannel) joinSessionSignalChannel(mainSessionId);
     recordAttendanceIfRealSession(roomName, displayName);
     if(!currentBreakoutGroupId) showJoinInfoModal();
-    document.getElementById('streamBtn').style.display = isSessionHost ? 'inline-flex' : 'none';
-    document.getElementById('micControlSelect').style.display = isSessionHost ? 'block' : 'none';
-    document.getElementById('breakoutBtn').style.display = isSessionHost ? 'inline-flex' : 'none';
-    document.getElementById('peopleTabBreakoutLink').style.display = isSessionHost ? 'block' : 'none';
+    applyHostUiVisibility();
+    identityToUserId = {};
+    broadcastMyPresenceInfo();
 
     if(isSessionHost){
       const canUseAi = await canUseAiFeaturesThisSession();
@@ -2164,6 +2177,7 @@ function disconnectCurrentLiveKitConnection(){
     cameraInitialized = false;
     document.getElementById('videoGrid').querySelectorAll('.tile:not(#localTile)').forEach(t => t.remove());
     people = [];
+    identityToUserId = {};
     renderPeople();
   }
 }
@@ -2593,6 +2607,7 @@ document.querySelectorAll('.tabs button').forEach(b=> b.addEventListener('click'
 
 /* ---------- PEOPLE LIST (synchronisée avec les vrais participants LiveKit) ---------- */
 let people = [];
+let identityToUserId = {}; // correspondance identité LiveKit -> vrai compte Supabase, pour la persistance des rôles
 
 function renderPeople(){
   const wrap = document.getElementById('peopleList');
@@ -2604,13 +2619,121 @@ function renderPeople(){
   wrap.innerHTML = people.map(p=>`
     <div class="prow">
       <div class="av" style="background:${p.color}">${p.name[0].toUpperCase()}</div>
-      <div><div class="name">${p.name}${moderatorIdentities.has(p.identity) ? ' 🛡️' : ''}</div><div class="role">${p.role}</div></div>
+      <div><div class="name">${p.name}${moderatorIdentities.has(p.identity) ? ' 🛡️' : ''}${p.role === 'Enseignant' && !isLocal(p.identity) ? ' 👑' : ''}</div><div class="role">${p.role}</div></div>
       <div class="flags">${p.hand?'✋':''} ${p.mic?'🎙️':'🔇'}</div>
-      ${isSessionHost && !isLocal(p.identity) && !moderatorIdentities.has(p.identity)
-        ? `<button class="btn btn-ghost btn-sm" data-make-mod="${p.identity}" title="Nommer modérateur">🛡️</button>` : ''}
+      ${isSessionHost && !isLocal(p.identity) ? `
+        ${!moderatorIdentities.has(p.identity) ? `<button class="btn btn-ghost btn-sm" data-make-mod="${p.identity}" title="Nommer modérateur">🛡️</button>` : ''}
+        ${p.role !== 'Enseignant' ? `<button class="btn btn-ghost btn-sm" data-make-org="${p.identity}" title="Nommer co-organisateur">👑</button>` : ''}
+      ` : ''}
     </div>`).join('');
   wrap.querySelectorAll('button[data-make-mod]').forEach(btn => {
     btn.addEventListener('click', () => makeModerator(btn.dataset.makeMod));
+  });
+  wrap.querySelectorAll('button[data-make-org]').forEach(btn => {
+    btn.addEventListener('click', () => makeCoOrganizer(btn.dataset.makeOrg, identityToUserId[btn.dataset.makeOrg]));
+  });
+}
+
+/* ---------- CO-ORGANISATEURS ---------- */
+/* ---------- CO-ORGANISATEURS ---------- */
+function broadcastMyPresenceInfo(){
+  if(!liveKitRoom) return;
+  const payload = new TextEncoder().encode(JSON.stringify({
+    type: 'presence_info',
+    identity: liveKitRoom.localParticipant.identity,
+    userId: (currentUser && !isDevMode) ? currentUser.id : null
+  }));
+  liveKitRoom.localParticipant.publishData(payload, { reliable: true }).catch(e => console.error('Erreur annonce présence:', e));
+}
+
+function applyHostUiVisibility(){
+  document.getElementById('streamBtn').style.display = isSessionHost ? 'inline-flex' : 'none';
+  document.getElementById('micControlSelect').style.display = isSessionHost ? 'block' : 'none';
+  document.getElementById('breakoutBtn').style.display = isSessionHost ? 'inline-flex' : 'none';
+  document.getElementById('peopleTabBreakoutLink').style.display = isSessionHost ? 'block' : 'none';
+}
+
+/* Persiste le statut de co-organisateur pour qu'il survive à une déconnexion/reconnexion */
+async function persistCoOrganizer(sessionId, userId){
+  if(!UUID_REGEX.test(sessionId || '') || !userId) return;
+  const { data: existing } = await supabaseClient
+    .from('session_participants').select('id').eq('session_id', sessionId).eq('user_id', userId).maybeSingle();
+  if(existing){
+    await supabaseClient.from('session_participants').update({ role: 'teacher' }).eq('id', existing.id);
+  } else {
+    await supabaseClient.from('session_participants').insert({ session_id: sessionId, user_id: userId, role: 'teacher' });
+  }
+}
+
+/* Vérifie, à l'entrée dans une vraie session, si ce compte a déjà été désigné co-organisateur au préalable */
+async function checkPreassignedOrganizer(sessionId, userId){
+  if(!UUID_REGEX.test(sessionId || '') || !userId) return false;
+  const { data } = await supabaseClient
+    .from('session_participants').select('role').eq('session_id', sessionId).eq('user_id', userId).eq('role', 'teacher').maybeSingle();
+  return !!data;
+}
+
+/* Nomination en direct : rend quelqu'un co-organisateur immédiatement, pour la session en cours */
+function makeCoOrganizer(identity, userId){
+  if(!isSessionHost || !liveKitRoom) return;
+  const payload = new TextEncoder().encode(JSON.stringify({ type: 'organizer_status', identity, active: true }));
+  liveKitRoom.localParticipant.publishData(payload, { reliable: true }).catch(e => console.error('Erreur nomination co-organisateur:', e));
+  toast('Co-organisateur nommé');
+  if(userId) persistCoOrganizer(sessionStorage.getItem('upperroom_room_name'), userId);
+}
+
+function handleOrganizerStatus(identity, active){
+  if(!liveKitRoom || identity !== liveKitRoom.localParticipant.identity) return;
+  isSessionHost = active;
+  applyHostUiVisibility();
+  const person = people.find(p => p.identity === identity);
+  if(person) person.role = active ? 'Enseignant' : 'Membre';
+  renderPeople();
+  toast(active ? 'Vous êtes maintenant co-organisateur de cette session' : 'Vous n\'êtes plus organisateur');
+}
+
+/* ---------- CO-ORGANISATEURS DEPUIS LE DASHBOARD (avant même que la session démarre) ---------- */
+async function showOrganizersModal(sessionId, sessionTitle){
+  if(!currentChurch) return;
+
+  const { data: members } = await supabaseClient.from('users').select('id, full_name').eq('church_id', currentChurch.id);
+  const { data: existingRoles } = await supabaseClient
+    .from('session_participants').select('user_id, role').eq('session_id', sessionId);
+
+  const organizerIds = new Set((existingRoles || []).filter(r => r.role === 'teacher').map(r => r.user_id));
+
+  const rows = (members || []).map(m => `
+    <label style="display:flex; align-items:center; gap:8px; padding:7px 0; font-size:13.5px; cursor:pointer;">
+      <input type="checkbox" class="organizer-checkbox" value="${m.id}" ${organizerIds.has(m.id) ? 'checked' : ''}> ${m.full_name}
+    </label>`).join('');
+
+  const html = `
+    <div class="join-info-card" style="max-width:420px; position:relative;">
+      <button class="close-btn" onclick="this.closest('.join-info-overlay').remove()">✕</button>
+      <h3>Organisateurs — ${sessionTitle}</h3>
+      <p class="sub">Cochez les personnes qui pourront co-organiser cette étude.</p>
+      <div id="organizersCheckList" style="max-height:240px; overflow-y:auto; margin-bottom:16px;">${rows || '<p style="font-size:13px; color:var(--gray);">Aucun membre.</p>'}</div>
+      <button class="btn btn-primary" style="width:100%; justify-content:center;" id="saveOrganizersBtn">Enregistrer</button>
+    </div>`;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'join-info-overlay show';
+  overlay.innerHTML = html;
+  document.body.appendChild(overlay);
+
+  document.getElementById('saveOrganizersBtn').addEventListener('click', async () => {
+    const checked = Array.from(overlay.querySelectorAll('.organizer-checkbox:checked')).map(cb => cb.value);
+    const unchecked = Array.from(overlay.querySelectorAll('.organizer-checkbox:not(:checked)')).map(cb => cb.value);
+
+    for(const userId of checked) await persistCoOrganizer(sessionId, userId);
+    for(const userId of unchecked){
+      if(organizerIds.has(userId)){
+        await supabaseClient.from('session_participants').update({ role: 'member' })
+          .eq('session_id', sessionId).eq('user_id', userId).eq('role', 'teacher');
+      }
+    }
+    toast('Organisateurs mis à jour');
+    overlay.remove();
   });
 }
 
@@ -3452,6 +3575,7 @@ async function loadSessionsList(){
     }
     if(isCreator && !isEnded){
       actionButtons += `<button class="btn btn-ghost btn-sm" data-action="stream" data-id="${s.id}" data-title="${escapeHtml(s.title)}" title="Configurer la diffusion externe">📡</button>`;
+      actionButtons += `<button class="btn btn-ghost btn-sm" data-action="organizers" data-id="${s.id}" data-title="${escapeHtml(s.title)}" title="Gérer les co-organisateurs">👑</button>`;
     }
     if(isEnded){
       actionButtons += `<button class="btn btn-ghost btn-sm" data-action="recap" data-id="${s.id}" data-title="${escapeHtml(s.title)}">📄 Récap</button>`;
@@ -3518,6 +3642,8 @@ async function loadSessionsList(){
         startStreamingForSession(id); // lance automatiquement les destinations préconfigurées, s'il y en a
       } else if(btn.dataset.action === 'stream'){
         showStreamModal(id, title);
+      } else if(btn.dataset.action === 'organizers'){
+        showOrganizersModal(id, title);
       } else if(btn.dataset.action === 'recap'){
         showSavedRecap(id, title);
       } else if(btn.dataset.action === 'copy-link'){
