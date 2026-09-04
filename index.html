@@ -529,6 +529,14 @@
       <button id="lang-en">EN</button>
     </div>
     <button class="btn btn-ghost btn-sm" onclick="showPage('join')">Rejoindre avec un lien</button>
+    <div style="position:relative;" id="notificationBellWrap">
+      <button class="btn btn-ghost btn-sm" id="notificationBellBtn" onclick="toggleNotificationDropdown()" title="Notifications">
+        🔔<span id="notificationCount" style="display:none; background:#B91C1C; color:#fff; font-size:10px; font-weight:700; border-radius:999px; padding:1px 5px; margin-left:3px;">0</span>
+      </button>
+      <div id="notificationDropdown" style="display:none; position:absolute; top:110%; right:0; width:320px; max-height:400px; overflow-y:auto; background:#fff; border-radius:var(--radius-md); box-shadow:0 10px 30px -8px rgba(0,0,0,.3); z-index:60;">
+        <div id="notificationList" style="padding:8px;"></div>
+      </div>
+    </div>
     <button class="btn btn-primary btn-sm" id="navAuthBtn" onclick="showPage('login')">Se connecter</button>
   </div>
 </nav>
@@ -1615,6 +1623,14 @@ async function recordAttendanceIfRealSession(roomName, displayName){
     });
 
   if(error) console.error('Erreur enregistrement présence:', error);
+
+  // Prévient le créateur de l'étude qu'un participant vient de la rejoindre
+  if(!isSessionHost){
+    const { data: sessionRow } = await supabaseClient.from('sessions').select('created_by, title').eq('id', roomName).single();
+    if(sessionRow && sessionRow.created_by){
+      createNotification(sessionRow.created_by, displayName + ' a rejoint votre étude "' + sessionRow.title + '".', roomName);
+    }
+  }
 }
 
 /* ---------- CANAL DE SIGNALISATION INDÉPENDANT (Supabase Realtime) ----------
@@ -2679,7 +2695,10 @@ function makeCoOrganizer(identity, userId){
   const payload = new TextEncoder().encode(JSON.stringify({ type: 'organizer_status', identity, active: true }));
   liveKitRoom.localParticipant.publishData(payload, { reliable: true }).catch(e => console.error('Erreur nomination co-organisateur:', e));
   toast('Co-organisateur nommé');
-  if(userId) persistCoOrganizer(sessionStorage.getItem('upperroom_room_name'), userId);
+  if(userId){
+    persistCoOrganizer(sessionStorage.getItem('upperroom_room_name'), userId);
+    createNotification(userId, 'Vous avez été nommé co-organisateur d\'une étude.');
+  }
 }
 
 function handleOrganizerStatus(identity, active){
@@ -2724,6 +2743,7 @@ async function showOrganizersModal(sessionId, sessionTitle){
   document.getElementById('saveOrganizersBtn').addEventListener('click', async () => {
     const checked = Array.from(overlay.querySelectorAll('.organizer-checkbox:checked')).map(cb => cb.value);
     const unchecked = Array.from(overlay.querySelectorAll('.organizer-checkbox:not(:checked)')).map(cb => cb.value);
+    const newlyAdded = checked.filter(id => !organizerIds.has(id));
 
     for(const userId of checked) await persistCoOrganizer(sessionId, userId);
     for(const userId of unchecked){
@@ -2731,6 +2751,9 @@ async function showOrganizersModal(sessionId, sessionTitle){
         await supabaseClient.from('session_participants').update({ role: 'member' })
           .eq('session_id', sessionId).eq('user_id', userId).eq('role', 'teacher');
       }
+    }
+    for(const userId of newlyAdded){
+      createNotification(userId, 'Vous avez été désigné organisateur pour l\'étude "' + sessionTitle + '".', sessionId);
     }
     toast('Organisateurs mis à jour');
     overlay.remove();
@@ -3123,6 +3146,7 @@ function makeModerator(identity){
   liveKitRoom.localParticipant.publishData(payload, { reliable: true }).catch(e => console.error('Erreur nomination modérateur:', e));
   handleModeratorStatus(identity, true);
   toast('Modérateur nommé');
+  if(identityToUserId[identity]) createNotification(identityToUserId[identity], 'Vous avez été nommé modérateur d\'une session.');
 }
 
 /* ================= SUPABASE CONFIG & AUTH ================= */
@@ -3309,11 +3333,14 @@ function buildGreetingName(userRow){
 async function updateNavAuthState(){
   const btn = document.getElementById('navAuthBtn');
   const authOnlyLinks = document.querySelectorAll('.navlinks button[data-page="dashboard"], .navlinks button[data-page="library"], .navlinks button[data-page="members"]');
+  const bellWrap = document.getElementById('notificationBellWrap');
 
   function setLoggedOut(){
     btn.textContent = 'Se connecter';
     btn.onclick = () => showPage('login');
     authOnlyLinks.forEach(l => l.style.display = 'none');
+    bellWrap.style.display = 'none';
+    stopNotificationPolling();
   }
 
   if(isDevMode){ setLoggedOut(); return; }
@@ -3329,6 +3356,90 @@ async function updateNavAuthState(){
   btn.textContent = userRow ? buildGreetingName(userRow) : 'Mon compte';
   btn.onclick = () => showPage('account');
   authOnlyLinks.forEach(l => l.style.display = '');
+  bellWrap.style.display = 'inline-block';
+  startNotificationPolling();
+}
+
+/* ---------- NOTIFICATIONS ---------- */
+let notificationPollTimer = null;
+
+function startNotificationPolling(){
+  refreshNotificationCount();
+  if(notificationPollTimer) clearInterval(notificationPollTimer);
+  notificationPollTimer = setInterval(refreshNotificationCount, 30000); // vérifie toutes les 30 secondes
+}
+function stopNotificationPolling(){
+  if(notificationPollTimer){ clearInterval(notificationPollTimer); notificationPollTimer = null; }
+}
+
+async function refreshNotificationCount(){
+  const { data: sessionData } = await supabaseClient.auth.getSession();
+  if(!sessionData.session) return;
+  const { count } = await supabaseClient
+    .from('notifications').select('id', { count: 'exact', head: true })
+    .eq('user_id', sessionData.session.user.id).eq('is_read', false);
+  const badge = document.getElementById('notificationCount');
+  if(count && count > 0){
+    badge.textContent = count > 9 ? '9+' : count;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+async function toggleNotificationDropdown(){
+  const dropdown = document.getElementById('notificationDropdown');
+  const isOpening = dropdown.style.display === 'none';
+  dropdown.style.display = isOpening ? 'block' : 'none';
+  if(!isOpening) return;
+
+  const list = document.getElementById('notificationList');
+  list.innerHTML = `<p style="padding:14px; font-size:13px; color:var(--gray);">Chargement…</p>`;
+
+  const { data: sessionData } = await supabaseClient.auth.getSession();
+  if(!sessionData.session) return;
+
+  const { data: notifs, error } = await supabaseClient
+    .from('notifications').select('*')
+    .eq('user_id', sessionData.session.user.id)
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if(error){ list.innerHTML = `<p style="padding:14px; font-size:13px; color:var(--gray);">Erreur de chargement.</p>`; return; }
+
+  if(!notifs || notifs.length === 0){
+    list.innerHTML = `<p style="padding:14px; font-size:13px; color:var(--gray);">Aucune notification pour l'instant.</p>`;
+    return;
+  }
+
+  list.innerHTML = notifs.map(n => `
+    <div style="padding:10px 8px; border-bottom:1px solid var(--gray-line); ${n.is_read ? 'opacity:.6;' : ''}">
+      <div style="font-size:13px; line-height:1.4;">${n.message}</div>
+      <div style="font-size:11px; color:var(--gray); margin-top:3px;">${new Date(n.created_at).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' })}</div>
+    </div>`).join('');
+
+  // Marque tout comme lu dès l'ouverture
+  const unreadIds = notifs.filter(n => !n.is_read).map(n => n.id);
+  if(unreadIds.length > 0){
+    await supabaseClient.from('notifications').update({ is_read: true }).in('id', unreadIds);
+    refreshNotificationCount();
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const wrap = document.getElementById('notificationBellWrap');
+  if(wrap && !wrap.contains(e.target)){
+    document.getElementById('notificationDropdown').style.display = 'none';
+  }
+});
+
+/* Fonction générique pour créer une notification pour un utilisateur donné */
+async function createNotification(userId, message, sessionId){
+  if(!userId || isDevMode) return;
+  const { error } = await supabaseClient.from('notifications').insert({
+    user_id: userId, message, session_id: sessionId || null
+  });
+  if(error) console.error('Erreur création notification:', error);
 }
 
 /* ---------- MON COMPTE ---------- */
