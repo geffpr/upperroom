@@ -3409,6 +3409,9 @@ async function loadSessionsList(){
     if(isCreator && !isEnded){
       actionButtons += `<button class="btn btn-ghost btn-sm" data-action="stream" data-id="${s.id}" data-title="${escapeHtml(s.title)}" title="Configurer la diffusion externe">📡</button>`;
     }
+    if(isEnded){
+      actionButtons += `<button class="btn btn-ghost btn-sm" data-action="recap" data-id="${s.id}" data-title="${escapeHtml(s.title)}">📄 Récap</button>`;
+    }
 
     return `
       <div class="study-row">
@@ -3471,6 +3474,8 @@ async function loadSessionsList(){
         startStreamingForSession(id); // lance automatiquement les destinations préconfigurées, s'il y en a
       } else if(btn.dataset.action === 'stream'){
         showStreamModal(id, title);
+      } else if(btn.dataset.action === 'recap'){
+        showSavedRecap(id, title);
       } else if(btn.dataset.action === 'copy-link'){
         const url = new URL(window.location.origin + window.location.pathname);
         url.searchParams.set('code', code || id);
@@ -3545,6 +3550,34 @@ async function saveSessionEdits(id, updates){
   }
   toast('Étude modifiée');
   loadSessionsList();
+}
+
+/* ---------- RÉCAP SAUVEGARDÉ D'UNE ÉTUDE TERMINÉE ---------- */
+async function showSavedRecap(sessionId, sessionTitle){
+  const { data, error } = await supabaseClient
+    .from('session_summaries')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('generated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if(error){
+    toast('Erreur lors du chargement du récap');
+    console.error(error);
+    return;
+  }
+
+  if(!data){
+    alert('Étude "' + sessionTitle + '"\n\nAucun récap disponible pour cette étude (elle a peut-être été fermée avant qu\'un récap n\'ait pu être généré).');
+    return;
+  }
+
+  const pointsText = (data.key_points && data.key_points.length)
+    ? '\n\nPoints clés :\n' + data.key_points.map(p => '• ' + p).join('\n')
+    : '';
+
+  alert('Récap — ' + sessionTitle + '\n\n' + data.summary + pointsText);
 }
 
 /* ---------- PARTICIPANTS D'UNE ÉTUDE ---------- */
@@ -3975,6 +4008,16 @@ async function endSession(){
     document.getElementById('recapVersesList').innerHTML = recap.verses_mentioned.map(v =>
       `<div class="recap-verse"><div class="ref">${v}</div></div>`
     ).join('');
+  }
+
+  // Sauvegarde réelle du récap, pour pouvoir le consulter plus tard depuis le dashboard
+  if(wasHost && roomName && UUID_REGEX.test(roomName) && !isDevMode && recap.summary){
+    const { error: summaryError } = await supabaseClient.from('session_summaries').insert({
+      session_id: roomName,
+      summary: recap.summary,
+      key_points: recap.key_points || []
+    });
+    if(summaryError) console.error('Erreur sauvegarde récap:', summaryError);
   }
 }
 
