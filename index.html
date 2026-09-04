@@ -318,6 +318,11 @@
   .connection-dot.good{background:#84CC16;}
   .connection-dot.poor{background:#F59E0B;}
   .connection-dot.lost{background:#EF4444;}
+  .breakout-banner{
+    display:none; align-items:center; justify-content:space-between; background:var(--violet-tint); color:var(--violet-deep);
+    font-size:13px; font-weight:600; padding:8px 14px; border-radius:var(--radius-sm); margin-bottom:8px;
+  }
+  .breakout-banner.show{display:flex;}
   .tile .signal-dot{
     position:absolute; top:8px; left:8px; width:9px; height:9px; border-radius:50%;
     box-shadow:0 0 0 2px rgba(0,0,0,.4); background:#9CA3AF;
@@ -857,6 +862,7 @@
       <div style="display:flex; gap:8px;">
         <button class="btn btn-secondary btn-sm" onclick="showJoinInfoModal()">🔗 Infos de la session</button>
         <button class="btn btn-secondary btn-sm" id="streamBtn" style="display:none;" onclick="showStreamModal()">📡 Diffuser</button>
+        <button class="btn btn-secondary btn-sm" id="breakoutBtn" style="display:none;" onclick="showBreakoutModal()">👥 Sous-groupes</button>
         <button class="btn btn-ghost btn-sm" onclick="leaveLiveKitRoom(); showPage('dashboard')">← Quitter la salle</button>
       </div>
     </div>
@@ -871,6 +877,11 @@
       </div>
       <p id="roomStatus" style="text-align:center; font-size:12.5px; color:var(--gray); margin-top:8px;">Connexion à la salle…</p>
       <p id="transcriptionStatus" style="text-align:center; font-size:12.5px; color:var(--violet-deep); margin-top:2px; min-height:16px;"></p>
+
+      <div class="breakout-banner" id="breakoutBanner">
+        <span id="breakoutBannerText">Vous êtes dans un sous-groupe</span>
+        <button class="btn btn-primary btn-sm" onclick="requestHostHelp()">🆘 Demander à l'organisateur de venir</button>
+      </div>
 
       <div class="lang-picker" style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
         <select id="captionLang" title="Langue des sous-titres">
@@ -960,6 +971,9 @@
 
         <div class="panel-view" id="tab-people">
           <div class="plist" id="peopleList"></div>
+          <div id="peopleTabBreakoutLink" style="display:none; padding:12px;">
+            <button class="btn btn-secondary btn-sm" style="width:100%; justify-content:center;" onclick="showBreakoutModal()">👥 Créer des sous-groupes</button>
+          </div>
         </div>
 
       </div>
@@ -1158,6 +1172,39 @@
 
     <button class="btn btn-primary" id="streamToggleBtn" style="width:100%; justify-content:center;" onclick="toggleStreaming()">Démarrer la diffusion</button>
     <p id="streamStatusText" style="text-align:center; font-size:12px; color:var(--gray); margin-top:8px;"></p>
+  </div>
+</div>
+
+<!-- ============ POPUP SOUS-GROUPES ============ -->
+<div class="join-info-overlay" id="breakoutOverlay">
+  <div class="join-info-card" style="max-width:480px; max-height:85vh; overflow-y:auto;">
+    <button class="close-btn" onclick="document.getElementById('breakoutOverlay').classList.remove('show')">✕</button>
+    <h3>Salles de sous-groupes</h3>
+    <p class="sub">Créez un ou plusieurs groupes, ou répartissez tout le monde au hasard.</p>
+
+    <div id="breakoutActiveGroupsSection" style="display:none; margin-bottom:18px;">
+      <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--gray); margin-bottom:8px;">Groupes en cours</label>
+      <div id="breakoutActiveGroupsList"></div>
+      <button class="btn btn-ghost btn-sm" style="width:100%; justify-content:center; margin-top:8px; color:#B91C1C;" onclick="closeAllBreakouts()">Fermer tous les groupes</button>
+      <div style="border-top:1px solid var(--gray-line); margin:16px 0;"></div>
+    </div>
+
+    <div class="join-info-row">
+      <label>Nom du nouveau groupe</label>
+      <input type="text" id="breakoutNewGroupName" placeholder="Ex. Groupe 1" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:9px 12px; font-size:13.5px;">
+    </div>
+    <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--gray); margin:12px 0 8px;">Sélectionner les participants</label>
+    <div id="breakoutPersonSelectList" style="margin-bottom:14px; max-height:180px; overflow-y:auto;"></div>
+    <button class="btn btn-primary" style="width:100%; justify-content:center; margin-bottom:18px;" onclick="createManualBreakoutGroup()">Créer et démarrer ce groupe</button>
+
+    <div style="border-top:1px solid var(--gray-line); padding-top:14px;">
+      <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--gray); margin-bottom:8px;">Assignation aléatoire</label>
+      <div class="join-info-row">
+        <label>Taille de chaque groupe (nombre de personnes)</label>
+        <input type="number" id="breakoutRandomSize" min="2" max="20" value="3" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:9px 12px; font-size:13.5px;">
+      </div>
+      <button class="btn btn-secondary" style="width:100%; justify-content:center;" onclick="createRandomBreakoutGroups()">Répartir au hasard et démarrer</button>
+    </div>
   </div>
 </div>
 
@@ -1526,6 +1573,220 @@ async function recordAttendanceIfRealSession(roomName, displayName){
   if(error) console.error('Erreur enregistrement présence:', error);
 }
 
+/* ---------- CANAL DE SIGNALISATION INDÉPENDANT (Supabase Realtime) ----------
+   Nécessaire car un sous-groupe est une salle LiveKit à part : deux personnes dans
+   des salles différentes ne peuvent pas s'échanger de messages via LiveKit directement. */
+let sessionSignalChannel = null;
+let mainSessionId = null; // identifiant de la VRAIE session (jamais celui d'un sous-groupe), pour retrouver son chemin
+
+function joinSessionSignalChannel(sessionId){
+  if(!UUID_REGEX.test(sessionId || '')) return; // pas de canal pour la salle de démo
+  mainSessionId = sessionId;
+  sessionSignalChannel = supabaseClient.channel('session-signal-' + sessionId);
+  sessionSignalChannel.on('broadcast', { event: 'signal' }, ({ payload }) => handleSessionSignal(payload));
+  sessionSignalChannel.subscribe();
+}
+
+function leaveSessionSignalChannel(){
+  if(sessionSignalChannel){
+    supabaseClient.removeChannel(sessionSignalChannel);
+    sessionSignalChannel = null;
+  }
+  mainSessionId = null;
+}
+
+function sendSessionSignal(payload){
+  if(!sessionSignalChannel) return;
+  sessionSignalChannel.send({ type: 'broadcast', event: 'signal', payload });
+}
+
+function handleSessionSignal(payload){
+  const myIdentity = liveKitRoom ? liveKitRoom.localParticipant.identity : null;
+
+  if(payload.type === 'breakout_move'){
+    if(myIdentity && payload.memberIdentities.includes(myIdentity)){
+      joinBreakoutGroup(payload.groupId, payload.groupName);
+    }
+  } else if(payload.type === 'breakout_close'){
+    if(currentBreakoutGroupId === payload.groupId){
+      returnToMainSession();
+    }
+    if(isSessionHost) delete breakoutGroups[payload.groupId];
+  } else if(payload.type === 'breakout_close_all'){
+    if(currentBreakoutGroupId){
+      returnToMainSession();
+    }
+    if(isSessionHost) breakoutGroups = {};
+  } else if(payload.type === 'breakout_help_request'){
+    if(isSessionHost && !currentBreakoutGroupId){
+      toast('🆘 ' + payload.fromName + ' demande votre aide dans "' + payload.groupName + '"');
+    }
+  }
+}
+
+/* ---------- SALLES DE SOUS-GROUPES ---------- */
+let breakoutGroups = {}; // groupId -> { name, memberIdentities: [...] }
+let currentBreakoutGroupId = null; // null si dans la salle principale
+
+function showBreakoutModal(){
+  renderBreakoutActiveGroups();
+  renderBreakoutPersonSelectList();
+  document.getElementById('breakoutOverlay').classList.add('show');
+}
+
+function renderBreakoutActiveGroups(){
+  const section = document.getElementById('breakoutActiveGroupsSection');
+  const list = document.getElementById('breakoutActiveGroupsList');
+  const groupIds = Object.keys(breakoutGroups);
+
+  if(groupIds.length === 0){ section.style.display = 'none'; return; }
+  section.style.display = 'block';
+
+  list.innerHTML = groupIds.map(gid => {
+    const g = breakoutGroups[gid];
+    const names = g.memberIdentities.map(id => (people.find(p => p.identity === id) || {}).name || id).join(', ');
+    return `
+      <div style="padding:8px 0; border-bottom:1px solid var(--gray-line);">
+        <div style="font-weight:600; font-size:13.5px;">${g.name} <span style="color:var(--gray); font-weight:400;">(${g.memberIdentities.length})</span></div>
+        <div style="font-size:12px; color:var(--gray); margin-bottom:6px;">${names || 'Personne pour l\'instant'}</div>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-ghost btn-sm" data-join-group="${gid}">Rejoindre</button>
+          <button class="btn btn-ghost btn-sm" style="color:#B91C1C;" data-close-group="${gid}">Fermer</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-join-group]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const gid = btn.dataset.joinGroup;
+      document.getElementById('breakoutOverlay').classList.remove('show');
+      joinBreakoutGroup(gid, breakoutGroups[gid].name);
+    });
+  });
+  list.querySelectorAll('[data-close-group]').forEach(btn => {
+    btn.addEventListener('click', () => closeBreakoutGroup(btn.dataset.closeGroup));
+  });
+}
+
+function renderBreakoutPersonSelectList(){
+  const list = document.getElementById('breakoutPersonSelectList');
+  const assignable = people.filter(p => !currentBreakoutGroupId || p.identity !== (liveKitRoom && liveKitRoom.localParticipant.identity));
+  if(assignable.length === 0){
+    list.innerHTML = `<p style="font-size:12.5px; color:var(--gray);">Aucun participant à assigner pour l'instant.</p>`;
+    return;
+  }
+  list.innerHTML = assignable.map(p => `
+    <label style="display:flex; align-items:center; gap:8px; padding:6px 0; font-size:13.5px; cursor:pointer;">
+      <input type="checkbox" class="breakout-person-checkbox" value="${p.identity}"> ${p.name}
+    </label>`).join('');
+}
+
+async function createManualBreakoutGroup(){
+  const name = document.getElementById('breakoutNewGroupName').value.trim() || ('Groupe ' + (Object.keys(breakoutGroups).length + 1));
+  const memberIdentities = Array.from(document.querySelectorAll('.breakout-person-checkbox:checked')).map(cb => cb.value);
+
+  if(memberIdentities.length === 0){
+    toast('Sélectionnez au moins une personne');
+    return;
+  }
+
+  const groupId = 'bo' + Date.now() + Math.random().toString(36).slice(2,6);
+  breakoutGroups[groupId] = { name, memberIdentities };
+
+  sendSessionSignal({ type: 'breakout_move', groupId, groupName: name, memberIdentities });
+
+  document.getElementById('breakoutNewGroupName').value = '';
+  toast('Groupe "' + name + '" démarré avec ' + memberIdentities.length + ' personne(s)');
+  renderBreakoutActiveGroups();
+  renderBreakoutPersonSelectList();
+}
+
+async function createRandomBreakoutGroups(){
+  const size = parseInt(document.getElementById('breakoutRandomSize').value, 10) || 3;
+  const alreadyAssigned = new Set(Object.values(breakoutGroups).flatMap(g => g.memberIdentities));
+  const pool = people.map(p => p.identity).filter(id => !alreadyAssigned.has(id));
+
+  if(pool.length === 0){
+    toast('Aucun participant disponible à répartir');
+    return;
+  }
+
+  // Mélange aléatoire (Fisher-Yates)
+  for(let i = pool.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+
+  const startIndex = Object.keys(breakoutGroups).length;
+  let groupNum = startIndex;
+  for(let i = 0; i < pool.length; i += size){
+    groupNum++;
+    const memberIdentities = pool.slice(i, i + size);
+    const groupId = 'bo' + Date.now() + Math.random().toString(36).slice(2,6) + groupNum;
+    const name = 'Groupe ' + groupNum;
+    breakoutGroups[groupId] = { name, memberIdentities };
+    sendSessionSignal({ type: 'breakout_move', groupId, groupName: name, memberIdentities });
+  }
+
+  toast('Répartition aléatoire lancée (' + (groupNum - startIndex) + ' groupe(s))');
+  renderBreakoutActiveGroups();
+  renderBreakoutPersonSelectList();
+  document.getElementById('breakoutOverlay').classList.remove('show');
+}
+
+function closeBreakoutGroup(groupId){
+  sendSessionSignal({ type: 'breakout_close', groupId });
+  delete breakoutGroups[groupId];
+  renderBreakoutActiveGroups();
+  toast('Groupe fermé — retour à la salle principale pour ses membres');
+}
+
+function closeAllBreakouts(){
+  sendSessionSignal({ type: 'breakout_close_all' });
+  breakoutGroups = {};
+  document.getElementById('breakoutOverlay').classList.remove('show');
+  toast('Tous les groupes sont fermés');
+}
+
+/* Bascule réellement la connexion LiveKit vers la salle du sous-groupe */
+async function joinBreakoutGroup(groupId, groupName){
+  if(currentBreakoutGroupId === groupId) return; // déjà dedans
+
+  const wasHost = isSessionHost; // préservé pour la reconnexion
+  disconnectCurrentLiveKitConnection();
+
+  currentBreakoutGroupId = groupId;
+  sessionStorage.setItem('upperroom_room_name', mainSessionId + '-' + groupId);
+  document.getElementById('roomTitleTag').textContent = groupName;
+  document.getElementById('breakoutBanner').classList.add('show');
+  document.getElementById('breakoutBannerText').textContent = 'Sous-groupe : ' + groupName;
+
+  isSessionHost = wasHost;
+  await initCamera();
+  toast('Vous avez rejoint : ' + groupName);
+}
+
+/* Retour à la salle principale, avec les mêmes rôles (modérateur, organisateur…) déjà préservés car jamais réinitialisés */
+async function returnToMainSession(){
+  const wasHost = isSessionHost;
+  disconnectCurrentLiveKitConnection();
+
+  currentBreakoutGroupId = null;
+  sessionStorage.setItem('upperroom_room_name', mainSessionId);
+  document.getElementById('breakoutBanner').classList.remove('show');
+
+  isSessionHost = wasHost;
+  await initCamera();
+  toast('De retour dans la salle principale');
+}
+
+function requestHostHelp(){
+  const myName = getDisplayName();
+  const groupName = document.getElementById('breakoutBannerText').textContent.replace('Sous-groupe : ', '');
+  sendSessionSignal({ type: 'breakout_help_request', fromName: myName, groupName });
+  toast('L\'organisateur a été prévenu');
+}
+
 function startPlanEnforcement(){
   clearPlanEnforcementTimers();
   sessionTimerWarned = false;
@@ -1821,10 +2082,14 @@ async function initCamera(){
     upsertPerson('local-' + identity, displayName + ' (vous)', isSessionHost ? 'Enseignant' : 'Membre');
     toast('Connecté à la salle en direct ✅');
     startPlanEnforcement();
+    if(!mainSessionId) mainSessionId = roomName; // capture la vraie session une seule fois, à la toute première entrée
+    if(!sessionSignalChannel) joinSessionSignalChannel(mainSessionId);
     recordAttendanceIfRealSession(roomName, displayName);
-    showJoinInfoModal();
+    if(!currentBreakoutGroupId) showJoinInfoModal();
     document.getElementById('streamBtn').style.display = isSessionHost ? 'inline-flex' : 'none';
     document.getElementById('micControlSelect').style.display = isSessionHost ? 'block' : 'none';
+    document.getElementById('breakoutBtn').style.display = isSessionHost ? 'inline-flex' : 'none';
+    document.getElementById('peopleTabBreakoutLink').style.display = isSessionHost ? 'block' : 'none';
 
     if(isSessionHost){
       const canUseAi = await canUseAiFeaturesThisSession();
@@ -1845,8 +2110,22 @@ async function initCamera(){
   }
 }
 
-function leaveLiveKitRoom(){
+/* Déconnexion "légère" : coupe la connexion LiveKit en cours, sans réinitialiser les rôles
+   (modérateur, organisateur...) — utilisée à la fois pour quitter et pour basculer vers un sous-groupe. */
+function disconnectCurrentLiveKitConnection(){
   stopTranscription();
+  if(liveKitRoom){
+    liveKitRoom.disconnect();
+    liveKitRoom = null;
+    cameraInitialized = false;
+    document.getElementById('videoGrid').querySelectorAll('.tile:not(#localTile)').forEach(t => t.remove());
+    people = [];
+    renderPeople();
+  }
+}
+
+function leaveLiveKitRoom(){
+  disconnectCurrentLiveKitConnection();
   clearPlanEnforcementTimers();
   isSessionHost = false;
   currentEgressId = null;
@@ -1858,14 +2137,10 @@ function leaveLiveKitRoom(){
   backgroundBlurActive = false;
   if(bgAnimationFrameId) cancelAnimationFrame(bgAnimationFrameId);
   interpreterIdentity = null;
-  if(liveKitRoom){
-    liveKitRoom.disconnect();
-    liveKitRoom = null;
-    cameraInitialized = false;
-    document.getElementById('videoGrid').querySelectorAll('.tile:not(#localTile)').forEach(t => t.remove());
-    people = [];
-    renderPeople();
-  }
+  leaveSessionSignalChannel();
+  breakoutGroups = {};
+  currentBreakoutGroupId = null;
+  document.getElementById('breakoutBanner').classList.remove('show');
 }
 
 /* ---------- CONTRÔLE DES MICROS PAR L'ORGANISATEUR ---------- */
