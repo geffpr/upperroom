@@ -884,6 +884,12 @@
           <option value="original">Écouter : orateur original</option>
           <option value="interpreter">Écouter : interprète</option>
         </select>
+        <select id="micControlSelect" title="Contrôle des micros" style="display:none; background:rgba(0,0,0,0.55); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:999px; padding:5px 10px; font-size:11.5px;">
+          <option value="open">Micros : libres</option>
+          <option value="locked">Micros : verrouillés</option>
+          <option value="muted_all">Couper tout le monde maintenant</option>
+        </select>
+        <p id="micLockedNotice" style="display:none; background:rgba(185,28,28,0.85); color:#fff; font-size:11px; padding:4px 10px; border-radius:999px; margin:0;">🔒 Micro verrouillé par l'organisateur</p>
       </div>
 
       <div class="scripture-overlay" id="scriptureOverlay">
@@ -902,6 +908,7 @@
       <div class="toolbar">
         <button class="tool-btn" id="micBtn" title="Micro">🎙️</button>
         <button class="tool-btn" id="camBtn" title="Caméra">🎥</button>
+        <button class="tool-btn" id="blurBtn" title="Flou d'arrière-plan">🌫️</button>
         <button class="tool-btn" id="shareBtn" title="Partager l'écran">🖥️</button>
         <button class="tool-btn" id="handBtn" title="Lever la main">✋</button>
         <button class="tool-btn on-accent" id="bibleBtn" title="Afficher un verset">📖</button>
@@ -926,6 +933,11 @@
       <div class="panel-body">
 
         <div class="panel-view active" id="tab-chat">
+          <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--gray-line);">
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--gray); cursor:pointer;">
+              <input type="checkbox" id="anonToggle"> Envoyer anonymement
+            </label>
+          </div>
           <div class="chat-messages" id="chatMessages">
             <div class="msg">
               <div class="who">Système</div>
@@ -1771,13 +1783,19 @@ async function initCamera(){
       try{
         const msg = JSON.parse(new TextDecoder().decode(payload));
         if(msg.type === 'chat'){
-          renderChatMessage(msg.name || (participant && participant.name) || 'Participant', msg.text, false);
+          renderChatMessage(chatDisplayNameFor(msg), msg.text, false, msg.messageId, msg.identity);
+        } else if(msg.type === 'chat_delete'){
+          deleteChatMessage(msg.messageId, false);
+        } else if(msg.type === 'moderator_status'){
+          handleModeratorStatus(msg.identity, msg.active);
         } else if(msg.type === 'reaction'){
           showFloatingReaction(msg.reaction);
         } else if(msg.type === 'transcript'){
           handleIncomingTranscriptChunk(msg.text);
         } else if(msg.type === 'interpreter_status'){
           handleInterpreterStatus(msg.identity, msg.active);
+        } else if(msg.type === 'mic_control'){
+          applyMicControlMode(msg.mode);
         }
       }catch(e){ /* message non reconnu, ignoré */ }
     });
@@ -1806,6 +1824,7 @@ async function initCamera(){
     recordAttendanceIfRealSession(roomName, displayName);
     showJoinInfoModal();
     document.getElementById('streamBtn').style.display = isSessionHost ? 'inline-flex' : 'none';
+    document.getElementById('micControlSelect').style.display = isSessionHost ? 'block' : 'none';
 
     if(isSessionHost){
       const canUseAi = await canUseAiFeaturesThisSession();
@@ -1832,6 +1851,12 @@ function leaveLiveKitRoom(){
   isSessionHost = false;
   currentEgressId = null;
   setOnAirBadge(false);
+  micControlMode = 'open';
+  document.getElementById('micLockedNotice').style.display = 'none';
+  moderatorIdentities = new Set();
+  isModerator = false;
+  backgroundBlurActive = false;
+  if(bgAnimationFrameId) cancelAnimationFrame(bgAnimationFrameId);
   interpreterIdentity = null;
   if(liveKitRoom){
     liveKitRoom.disconnect();
@@ -1843,7 +1868,57 @@ function leaveLiveKitRoom(){
   }
 }
 
+/* ---------- CONTRÔLE DES MICROS PAR L'ORGANISATEUR ---------- */
+let micControlMode = 'open'; // 'open' | 'locked' | 'muted_all'
+
+function forceMuteLocalMic(){
+  micOn = false;
+  document.getElementById('micBtn').classList.add('off');
+  document.getElementById('micBtn').textContent = '🔇';
+  document.getElementById('localMicIcon').textContent = '🔇';
+  if(liveKitRoom) liveKitRoom.localParticipant.setMicrophoneEnabled(false);
+}
+
+function applyMicControlMode(mode){
+  micControlMode = mode;
+  const notice = document.getElementById('micLockedNotice');
+
+  if(isSessionHost){
+    notice.style.display = 'none';
+    return; // l'organisateur n'est jamais lui-même restreint
+  }
+
+  if(mode === 'muted_all'){
+    forceMuteLocalMic();
+    notice.style.display = 'block';
+    notice.textContent = '🔇 Coupé par l\'organisateur';
+    setTimeout(() => { if(micControlMode !== 'locked') notice.style.display = 'none'; }, 3000);
+  } else if(mode === 'locked'){
+    forceMuteLocalMic();
+    notice.style.display = 'block';
+    notice.textContent = '🔒 Micro verrouillé par l\'organisateur';
+  } else {
+    notice.style.display = 'none';
+  }
+}
+
+function broadcastMicControl(mode){
+  if(!liveKitRoom) return;
+  const payload = new TextEncoder().encode(JSON.stringify({ type: 'mic_control', mode }));
+  liveKitRoom.localParticipant.publishData(payload, { reliable: true }).catch(e => console.error('Erreur diffusion contrôle micro:', e));
+}
+
+document.getElementById('micControlSelect').addEventListener('change', function(){
+  broadcastMicControl(this.value);
+  applyMicControlMode(this.value); // reflète aussi l'état localement pour l'organisateur (affichage cohérent)
+  toast('Mode micro : ' + this.options[this.selectedIndex].text);
+});
+
 document.getElementById('micBtn').addEventListener('click', function(){
+  if(!isSessionHost && (micControlMode === 'locked' || micControlMode === 'muted_all')){
+    toast('Le micro est verrouillé par l\'organisateur');
+    return;
+  }
   micOn = !micOn;
   this.classList.toggle('off', !micOn);
   this.textContent = micOn ? '🎙️' : '🔇';
@@ -1860,6 +1935,127 @@ document.getElementById('camBtn').addEventListener('click', function(){
   document.getElementById('localFallback').style.display = camOn ? 'none' : 'flex';
   if(liveKitRoom) liveKitRoom.localParticipant.setCameraEnabled(camOn);
   toast(camOn ? 'Caméra activée' : 'Caméra coupée');
+});
+
+/* ---------- FLOU D'ARRIÈRE-PLAN (segmentation en temps réel, côté navigateur) ---------- */
+let backgroundBlurActive = false;
+let bgImageSegmenter = null;
+let bgAnimationFrameId = null;
+let bgHiddenVideo = null;
+let bgCanvas = null;
+let bgOriginalCameraTrack = null;
+
+async function loadImageSegmenter(){
+  if(bgImageSegmenter) return bgImageSegmenter;
+  const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+  const filesetResolver = await vision.FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+  );
+  bgImageSegmenter = await vision.ImageSegmenter.createFromOptions(filesetResolver, {
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite',
+      delegate: 'GPU'
+    },
+    runningMode: 'VIDEO',
+    outputCategoryMask: true,
+    outputConfidenceMasks: false
+  });
+  return bgImageSegmenter;
+}
+
+async function startBackgroundBlur(){
+  if(!liveKitRoom){ toast('Rejoignez d\'abord la salle'); return; }
+  const btn = document.getElementById('blurBtn');
+  btn.disabled = true;
+  toast('Chargement du flou d\'arrière-plan…');
+
+  try{
+    await loadImageSegmenter();
+
+    const camPub = Array.from(liveKitRoom.localParticipant.videoTrackPublications.values())
+      .find(p => p.source === 'camera' && p.track);
+    if(!camPub){ toast('Caméra non disponible'); btn.disabled = false; return; }
+
+    bgOriginalCameraTrack = camPub.track.mediaStreamTrack;
+
+    bgHiddenVideo = document.createElement('video');
+    bgHiddenVideo.srcObject = new MediaStream([bgOriginalCameraTrack]);
+    bgHiddenVideo.muted = true;
+    await bgHiddenVideo.play();
+
+    bgCanvas = document.createElement('canvas');
+    bgCanvas.width = bgHiddenVideo.videoWidth || 640;
+    bgCanvas.height = bgHiddenVideo.videoHeight || 480;
+    const ctx = bgCanvas.getContext('2d');
+
+    function renderFrame(){
+      if(!backgroundBlurActive) return;
+      const nowMs = performance.now();
+      bgImageSegmenter.segmentForVideo(bgHiddenVideo, nowMs, (result) => {
+        const mask = result.categoryMask;
+        const w = bgCanvas.width, h = bgCanvas.height;
+
+        // Fond flouté
+        ctx.filter = 'blur(12px)';
+        ctx.drawImage(bgHiddenVideo, 0, 0, w, h);
+        ctx.filter = 'none';
+
+        // Découpe la personne (masque catégorie 0 = premier plan dans ce modèle) et la redessine nette par-dessus
+        const maskData = mask.getAsUint8Array();
+        const frame = ctx.getImageData(0, 0, w, h);
+        const sharp = document.createElement('canvas');
+        sharp.width = w; sharp.height = h;
+        const sctx = sharp.getContext('2d');
+        sctx.drawImage(bgHiddenVideo, 0, 0, w, h);
+        const sharpData = sctx.getImageData(0, 0, w, h);
+
+        for(let i = 0; i < maskData.length; i++){
+          if(maskData[i] === 0){ // 0 = personne, dans le modèle selfie_segmenter
+            const o = i * 4;
+            frame.data[o] = sharpData.data[o];
+            frame.data[o+1] = sharpData.data[o+1];
+            frame.data[o+2] = sharpData.data[o+2];
+          }
+        }
+        ctx.putImageData(frame, 0, 0);
+        mask.close();
+      });
+      bgAnimationFrameId = requestAnimationFrame(renderFrame);
+    }
+    backgroundBlurActive = true;
+    renderFrame();
+
+    const canvasStream = bgCanvas.captureStream(24);
+    const canvasTrack = canvasStream.getVideoTracks()[0];
+    await camPub.track.replaceTrack(canvasTrack);
+
+    btn.classList.add('on-accent');
+    toast('Flou d\'arrière-plan activé');
+  }catch(e){
+    console.error('Erreur flou d\'arrière-plan:', e);
+    toast('Impossible d\'activer le flou (fonctionnalité expérimentale, peut ne pas être supportée par ce navigateur)');
+    backgroundBlurActive = false;
+  }
+  btn.disabled = false;
+}
+
+async function stopBackgroundBlur(){
+  backgroundBlurActive = false;
+  if(bgAnimationFrameId) cancelAnimationFrame(bgAnimationFrameId);
+
+  if(liveKitRoom && bgOriginalCameraTrack){
+    const camPub = Array.from(liveKitRoom.localParticipant.videoTrackPublications.values())
+      .find(p => p.source === 'camera' && p.track);
+    if(camPub) await camPub.track.replaceTrack(bgOriginalCameraTrack);
+  }
+
+  document.getElementById('blurBtn').classList.remove('on-accent');
+  toast('Flou d\'arrière-plan désactivé');
+}
+
+document.getElementById('blurBtn').addEventListener('click', () => {
+  if(backgroundBlurActive) stopBackgroundBlur();
+  else startBackgroundBlur();
 });
 
 document.getElementById('shareBtn').addEventListener('click', async function(){
@@ -2085,12 +2281,18 @@ function renderPeople(){
     wrap.innerHTML = `<p style="padding:16px; font-size:13px; color:var(--gray);">En attente d'autres participants…</p>`;
     return;
   }
+  const isLocal = (identity) => liveKitRoom && identity === liveKitRoom.localParticipant.identity;
   wrap.innerHTML = people.map(p=>`
     <div class="prow">
       <div class="av" style="background:${p.color}">${p.name[0].toUpperCase()}</div>
-      <div><div class="name">${p.name}</div><div class="role">${p.role}</div></div>
+      <div><div class="name">${p.name}${moderatorIdentities.has(p.identity) ? ' 🛡️' : ''}</div><div class="role">${p.role}</div></div>
       <div class="flags">${p.hand?'✋':''} ${p.mic?'🎙️':'🔇'}</div>
+      ${isSessionHost && !isLocal(p.identity) && !moderatorIdentities.has(p.identity)
+        ? `<button class="btn btn-ghost btn-sm" data-make-mod="${p.identity}" title="Nommer modérateur">🛡️</button>` : ''}
     </div>`).join('');
+  wrap.querySelectorAll('button[data-make-mod]').forEach(btn => {
+    btn.addEventListener('click', () => makeModerator(btn.dataset.makeMod));
+  });
 }
 
 function upsertPerson(identity, name, role){
@@ -2403,13 +2605,34 @@ document.querySelectorAll('#reactionPicker button[data-reaction]').forEach(btn =
   btn.addEventListener('click', () => sendReaction(btn.dataset.reaction));
 });
 
-function renderChatMessage(who, text, isMe){
+/* ---------- CHAT (anonymat + modération) ---------- */
+let moderatorIdentities = new Set();
+let isModerator = false;
+
+function renderChatMessage(who, text, isMe, messageId, senderIdentity){
   const wrap = document.getElementById('chatMessages');
   const div = document.createElement('div');
   div.className = 'msg' + (isMe ? ' me' : '');
-  div.innerHTML = `<div class="who">${who}</div><div class="bubble">${text.replace(/</g,'&lt;')}</div>`;
+  if(messageId) div.dataset.msgId = messageId;
+
+  const canModerate = (isSessionHost || isModerator) && !isMe;
+  div.innerHTML = `
+    <div class="who">${who}${canModerate ? ' <button data-del="'+messageId+'" style="border:none; background:none; color:var(--gray); cursor:pointer; font-size:11px;" title="Supprimer pour tous">🗑️</button>' : ''}</div>
+    <div class="bubble">${text.replace(/</g,'&lt;')}</div>`;
   wrap.appendChild(div);
   wrap.scrollTop = wrap.scrollHeight;
+
+  const delBtn = div.querySelector('button[data-del]');
+  if(delBtn) delBtn.addEventListener('click', () => deleteChatMessage(messageId));
+}
+
+function deleteChatMessage(messageId, broadcast = true){
+  const el = document.querySelector(`.msg[data-msg-id="${messageId}"]`);
+  if(el) el.remove();
+  if(broadcast && liveKitRoom){
+    const payload = new TextEncoder().encode(JSON.stringify({ type: 'chat_delete', messageId }));
+    liveKitRoom.localParticipant.publishData(payload, { reliable: true }).catch(e => console.error('Erreur suppression message:', e));
+  }
 }
 
 function sendChat(){
@@ -2417,11 +2640,18 @@ function sendChat(){
   const val = input.value.trim();
   if(!val) return;
 
+  const isAnon = document.getElementById('anonToggle').checked;
   const myName = getDisplayName();
-  renderChatMessage(myName, val, true);
+  const displayName = isAnon ? 'Anonyme' : myName;
+  const messageId = 'm' + Date.now() + Math.random().toString(36).slice(2,7);
+  const myIdentity = liveKitRoom ? liveKitRoom.localParticipant.identity : 'local';
+
+  renderChatMessage(displayName, val, true, messageId, myIdentity);
 
   if(liveKitRoom){
-    const payload = new TextEncoder().encode(JSON.stringify({ type: 'chat', name: myName, text: val }));
+    const payload = new TextEncoder().encode(JSON.stringify({
+      type: 'chat', name: displayName, realName: myName, text: val, messageId, identity: myIdentity
+    }));
     liveKitRoom.localParticipant.publishData(payload, { reliable: true }).catch(e => console.error('Erreur envoi chat:', e));
   } else {
     toast('Non connecté à la salle — message visible par vous seul');
@@ -2430,6 +2660,28 @@ function sendChat(){
   input.value = '';
 }
 document.getElementById('chatInput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
+
+/* Un modérateur/organisateur voit toujours le vrai nom, même si le message est envoyé "anonyme" pour les autres */
+function chatDisplayNameFor(msg){
+  if(msg.name !== 'Anonyme') return msg.name;
+  return (isSessionHost || isModerator) ? msg.realName + ' (anonyme pour les autres)' : 'Anonyme';
+}
+
+function handleModeratorStatus(identity, active){
+  if(active) moderatorIdentities.add(identity); else moderatorIdentities.delete(identity);
+  if(liveKitRoom && identity === liveKitRoom.localParticipant.identity){
+    isModerator = active;
+    toast(active ? 'Vous êtes maintenant modérateur' : 'Vous n\'êtes plus modérateur');
+  }
+}
+
+function makeModerator(identity){
+  if(!isSessionHost || !liveKitRoom) return;
+  const payload = new TextEncoder().encode(JSON.stringify({ type: 'moderator_status', identity, active: true }));
+  liveKitRoom.localParticipant.publishData(payload, { reliable: true }).catch(e => console.error('Erreur nomination modérateur:', e));
+  handleModeratorStatus(identity, true);
+  toast('Modérateur nommé');
+}
 
 /* ================= SUPABASE CONFIG & AUTH ================= */
 const SUPABASE_URL = "https://rfnprxjinukeowotlqxv.supabase.co";
