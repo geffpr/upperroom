@@ -825,7 +825,41 @@
       </div>
       <div style="display:flex; gap:8px;">
         <button class="btn btn-secondary btn-sm" onclick="showJoinInfoModal()">🔗 Infos de la session</button>
+        <button class="btn btn-secondary btn-sm" id="streamBtn" style="display:none;" onclick="showStreamModal()">📡 Diffuser</button>
         <button class="btn btn-ghost btn-sm" onclick="leaveLiveKitRoom(); showPage('dashboard')">← Quitter la salle</button>
+      </div>
+    </div>
+
+    <!-- ============ POPUP DIFFUSION EXTERNE ============ -->
+    <div class="join-info-overlay" id="streamOverlay">
+      <div class="join-info-card" style="max-width:460px;">
+        <button class="close-btn" onclick="document.getElementById('streamOverlay').classList.remove('show')">✕</button>
+        <h3>Diffuser vers d'autres plateformes</h3>
+        <p class="sub">Ajoutez une destination RTMP (YouTube, Facebook, TikTok…).</p>
+
+        <div id="streamDestList" style="margin-bottom:16px;"></div>
+
+        <div class="join-info-row">
+          <label>Plateforme</label>
+          <select id="streamPlatform" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:9px 12px; font-size:13.5px; background:var(--bg); font-family:inherit;">
+            <option value="youtube">YouTube</option>
+            <option value="facebook">Facebook</option>
+            <option value="tiktok">TikTok</option>
+            <option value="other">Autre</option>
+          </select>
+        </div>
+        <div class="join-info-row">
+          <label>URL RTMP</label>
+          <input type="text" id="streamRtmpUrl" placeholder="rtmp://a.rtmp.youtube.com/live2" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:9px 12px; font-size:13.5px;">
+        </div>
+        <div class="join-info-row">
+          <label>Clé de diffusion</label>
+          <input type="text" id="streamKey" placeholder="xxxx-xxxx-xxxx-xxxx" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:9px 12px; font-size:13.5px;">
+        </div>
+        <button class="btn btn-ghost" style="width:100%; justify-content:center; margin-bottom:14px;" onclick="addStreamDestination()">+ Ajouter cette destination</button>
+
+        <button class="btn btn-primary" id="streamToggleBtn" style="width:100%; justify-content:center;" onclick="toggleStreaming()">Démarrer la diffusion</button>
+        <p id="streamStatusText" style="text-align:center; font-size:12px; color:var(--gray); margin-top:8px;"></p>
       </div>
     </div>
 
@@ -1705,6 +1739,7 @@ async function initCamera(){
     startPlanEnforcement();
     recordAttendanceIfRealSession(roomName, displayName);
     showJoinInfoModal();
+    document.getElementById('streamBtn').style.display = isSessionHost ? 'inline-flex' : 'none';
 
     if(isSessionHost){
       const canUseAi = await canUseAiFeaturesThisSession();
@@ -1729,6 +1764,8 @@ function leaveLiveKitRoom(){
   stopTranscription();
   clearPlanEnforcementTimers();
   isSessionHost = false;
+  currentEgressId = null;
+  interpreterIdentity = null;
   if(liveKitRoom){
     liveKitRoom.disconnect();
     liveKitRoom = null;
@@ -2091,6 +2128,123 @@ function updateInterpreterPip(){
   }
   // Ré-attache le même flux vidéo dans l'incrustation
   pip.querySelector('video').srcObject = sourceVideo.srcObject;
+}
+
+/* ---------- DIFFUSION VERS YOUTUBE / FACEBOOK / TIKTOK ---------- */
+let currentEgressId = null;
+
+async function loadStreamDestinations(){
+  const roomName = sessionStorage.getItem('upperroom_room_name');
+  const list = document.getElementById('streamDestList');
+  if(!UUID_REGEX.test(roomName || '')){
+    list.innerHTML = `<p style="font-size:12.5px; color:var(--gray);">Diffusion externe non disponible pour cette salle de démonstration.</p>`;
+    return [];
+  }
+  const { data, error } = await supabaseClient.from('stream_destinations').select('*').eq('session_id', roomName);
+  if(error){ list.innerHTML = `<p style="font-size:12.5px; color:var(--gray);">Erreur de chargement.</p>`; return []; }
+
+  if(!data || data.length === 0){
+    list.innerHTML = `<p style="font-size:12.5px; color:var(--gray);">Aucune destination ajoutée pour l'instant.</p>`;
+    return [];
+  }
+  list.innerHTML = data.map(d => `
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--gray-line); font-size:13px;">
+      <span>${d.platform === 'youtube' ? '▶️ YouTube' : d.platform === 'facebook' ? '📘 Facebook' : d.platform === 'tiktok' ? '🎵 TikTok' : '📡 ' + d.platform}</span>
+      <button class="btn btn-ghost btn-sm" onclick="removeStreamDestination('${d.id}')">Retirer</button>
+    </div>`).join('');
+  return data;
+}
+
+async function addStreamDestination(){
+  const roomName = sessionStorage.getItem('upperroom_room_name');
+  if(!UUID_REGEX.test(roomName || '')){
+    toast('La diffusion externe nécessite une vraie session (pas la démo)');
+    return;
+  }
+  const platform = document.getElementById('streamPlatform').value;
+  const rtmpUrl = document.getElementById('streamRtmpUrl').value.trim();
+  const streamKey = document.getElementById('streamKey').value.trim();
+
+  if(!rtmpUrl || !streamKey){
+    toast('Entrez l\'URL RTMP et la clé de diffusion');
+    return;
+  }
+
+  const { error } = await supabaseClient.from('stream_destinations').insert({
+    session_id: roomName, platform,
+    rtmp_url: rtmpUrl,
+    stream_key_encrypted: streamKey // chiffrement à ajouter avant un vrai lancement — voir note de sécurité
+  });
+  if(error){ console.error(error); toast('Erreur lors de l\'ajout de la destination'); return; }
+
+  document.getElementById('streamRtmpUrl').value = '';
+  document.getElementById('streamKey').value = '';
+  toast('Destination ajoutée');
+  loadStreamDestinations();
+}
+
+async function removeStreamDestination(id){
+  const { error } = await supabaseClient.from('stream_destinations').delete().eq('id', id);
+  if(error){ toast('Erreur lors de la suppression'); return; }
+  loadStreamDestinations();
+}
+
+function showStreamModal(){
+  loadStreamDestinations();
+  document.getElementById('streamOverlay').classList.add('show');
+}
+
+async function toggleStreaming(){
+  const roomName = sessionStorage.getItem('upperroom_room_name');
+  const btn = document.getElementById('streamToggleBtn');
+
+  if(currentEgressId){
+    btn.disabled = true;
+    document.getElementById('streamStatusText').textContent = 'Arrêt en cours…';
+    try{
+      const res = await fetch('/api/stream', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop', egressId: currentEgressId })
+      });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error);
+      currentEgressId = null;
+      btn.textContent = 'Démarrer la diffusion';
+      document.getElementById('streamStatusText').textContent = 'Diffusion arrêtée.';
+      toast('Diffusion arrêtée');
+    }catch(e){
+      document.getElementById('streamStatusText').textContent = 'Erreur : ' + e.message;
+    }
+    btn.disabled = false;
+    return;
+  }
+
+  const destinations = await loadStreamDestinations();
+  if(!destinations || destinations.length === 0){
+    toast('Ajoutez au moins une destination avant de démarrer');
+    return;
+  }
+
+  const rtmpUrls = destinations.map(d => d.rtmp_url.replace(/\/$/, '') + '/' + d.stream_key_encrypted);
+
+  btn.disabled = true;
+  document.getElementById('streamStatusText').textContent = 'Démarrage en cours…';
+  try{
+    const res = await fetch('/api/stream', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'start', room: roomName, rtmpUrls })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error);
+    currentEgressId = data.egressId;
+    btn.textContent = 'Arrêter la diffusion';
+    document.getElementById('streamStatusText').textContent = 'Diffusion active vers ' + destinations.length + ' destination(s).';
+    toast('Diffusion démarrée');
+  }catch(e){
+    document.getElementById('streamStatusText').textContent = 'Erreur : ' + e.message;
+    toast('Erreur au démarrage de la diffusion');
+  }
+  btn.disabled = false;
 }
 
 const REACTION_EMOJIS = { amen: '🙏', applause: '👏', fire: '🔥' };
