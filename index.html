@@ -816,6 +816,17 @@
         <input type="text" id="newSessionCode" placeholder="Ex. 4821">
       </div>
 
+      <div class="field">
+        <label>Programme d'étude <span style="color:var(--gray); font-weight:400;">(optionnel)</span></label>
+        <select id="newSessionProgram" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:11px 13px; font-size:14px; background:var(--bg); font-family:inherit;">
+          <option value="">Aucun</option>
+        </select>
+      </div>
+      <div class="field" id="fieldProgramWeek" style="display:none;">
+        <label>Semaine du programme</label>
+        <input type="number" id="newSessionWeek" min="1" placeholder="Ex. 3">
+      </div>
+
       <button class="btn btn-primary" id="createSessionBtn" style="width:100%; justify-content:center;" onclick="createSession()">Lancer maintenant</button>
       <button class="btn btn-ghost" style="width:100%; justify-content:center; margin-top:8px;" onclick="showPage('dashboard')">Annuler</button>
     </div>
@@ -1081,6 +1092,38 @@
   </div>
 </section>
 
+<!-- ============ DÉTAIL D'UN PROGRAMME D'ÉTUDE ============ -->
+<section class="page" id="page-program-detail">
+  <div class="shell">
+    <div class="sidebar">
+      <a onclick="showPage('library')">← Bibliothèque</a>
+      <div class="section-label">Église</div>
+      <a onclick="showPage('dashboard')">Dashboard</a>
+      <a onclick="showPage('members')">Membres</a>
+    </div>
+    <div class="shell-main">
+      <div class="page-inner">
+        <div class="page-inner-head">
+          <div>
+            <h1 id="programDetailTitle">Programme</h1>
+            <p id="programDetailSubtitle">Chargement…</p>
+          </div>
+        </div>
+
+        <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--gray); margin-bottom:8px;">Études de ce programme</label>
+        <div class="table-wrap" id="programDetailSessionsList" style="margin-bottom:24px;">
+          <p style="padding:14px 18px; font-size:13px; color:var(--gray);">Chargement…</p>
+        </div>
+
+        <label style="display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--gray); margin-bottom:8px;">Membres impliqués</label>
+        <div class="table-wrap" id="programDetailMembersList">
+          <p style="padding:14px 18px; font-size:13px; color:var(--gray);">Chargement…</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ============ MEMBERS ============ -->
 <section class="page" id="page-members">
   <div class="shell">
@@ -1224,6 +1267,7 @@ function showPage(id){
   if(id==='library'){ loadLibrary(); }
   if(id==='members'){ loadMembers(); }
   if(id==='account'){ loadAccountPage(); }
+  if(id==='create-session'){ loadProgramOptions(); }
   if(id==='join'){
     const codeField = document.getElementById('joinSessionCode');
     if(codeField){ codeField.style.display=''; codeField.disabled=false; }
@@ -3643,7 +3687,7 @@ async function loadLibrary(){
     const initials = p.title.split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase();
     const [statusClass, statusLabel] = statusLabels[p.status] || ['ok', p.status];
     return `
-      <div class="trow">
+      <div class="trow" data-program-id="${p.id}" data-program-title="${p.title.replace(/"/g,'&quot;')}" style="cursor:pointer;">
         <div class="av" style="background:${palette[i % palette.length]};">${initials}</div>
         <div class="main">
           <div class="t">${p.title}</div>
@@ -3652,6 +3696,96 @@ async function loadLibrary(){
         <span class="pill-status ${statusClass}">${statusLabel}</span>
       </div>`;
   }).join('');
+
+  container.querySelectorAll('[data-program-id]').forEach(row => {
+    row.addEventListener('click', () => openProgramDetail(row.dataset.programId, row.dataset.programTitle));
+  });
+}
+
+/* ---------- DÉTAIL D'UN PROGRAMME D'ÉTUDE ---------- */
+async function openProgramDetail(programId, programTitle){
+  document.getElementById('programDetailTitle').textContent = programTitle;
+  document.getElementById('programDetailSubtitle').textContent = 'Chargement…';
+  document.getElementById('programDetailSessionsList').innerHTML = `<p style="padding:14px 18px; font-size:13px; color:var(--gray);">Chargement…</p>`;
+  document.getElementById('programDetailMembersList').innerHTML = `<p style="padding:14px 18px; font-size:13px; color:var(--gray);">Chargement…</p>`;
+  showPage('program-detail');
+
+  const { data: links, error } = await supabaseClient
+    .from('program_sessions')
+    .select('week_number, sessions(*)')
+    .eq('program_id', programId)
+    .order('week_number', { ascending: true });
+
+  if(error){
+    document.getElementById('programDetailSubtitle').textContent = 'Erreur de chargement.';
+    return;
+  }
+
+  const sessions = (links || []).map(l => ({ ...l.sessions, week_number: l.week_number })).filter(s => s.id);
+  document.getElementById('programDetailSubtitle').textContent = sessions.length + ' étude' + (sessions.length !== 1 ? 's' : '') + ' dans ce programme';
+
+  const escapeHtml = (str) => String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const tz = (currentUser && currentUser.timezone) || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  const sessionsList = document.getElementById('programDetailSessionsList');
+  if(sessions.length === 0){
+    sessionsList.innerHTML = `<p style="padding:14px 18px; font-size:13px; color:var(--gray);">Aucune étude liée pour l'instant — reliez-en une depuis "+ Nouvelle étude".</p>`;
+  } else {
+    sessionsList.innerHTML = sessions.map(s => {
+      const isLive = s.status === 'live';
+      const isEnded = s.status === 'ended';
+      const dateLabel = s.scheduled_at ? new Date(s.scheduled_at).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short', timeZone: tz }) : '';
+      const statusLabel = isLive ? 'En direct' : isEnded ? 'Terminée' : (dateLabel ? 'Planifiée · ' + dateLabel : 'Planifiée');
+      return `
+        <div class="trow">
+          <div class="av" style="background:#6D4AFF;">${s.week_number || '·'}</div>
+          <div class="main">
+            <div class="t">${escapeHtml(s.title)}</div>
+            <div class="m">${s.week_number ? 'Semaine ' + s.week_number + ' · ' : ''}${statusLabel}</div>
+          </div>
+          ${isEnded ? `<button class="btn btn-ghost btn-sm" data-recap-id="${s.id}" data-recap-title="${escapeHtml(s.title)}">📄 Récap</button>` : ''}
+          ${isLive ? `<button class="btn btn-violet btn-sm" data-join-id="${s.id}" data-join-title="${escapeHtml(s.title)}" data-join-code="${s.join_code || ''}">Rejoindre</button>` : ''}
+        </div>`;
+    }).join('');
+
+    sessionsList.querySelectorAll('[data-recap-id]').forEach(btn => {
+      btn.addEventListener('click', () => showSavedRecap(btn.dataset.recapId, btn.dataset.recapTitle));
+    });
+    sessionsList.querySelectorAll('[data-join-id]').forEach(btn => {
+      btn.addEventListener('click', () => joinRealSession(btn.dataset.joinId, btn.dataset.joinTitle, false, btn.dataset.joinCode));
+    });
+  }
+
+  // Membres impliqués : tous ceux ayant rejoint au moins une des sessions de ce programme
+  const membersList = document.getElementById('programDetailMembersList');
+  const sessionIds = sessions.map(s => s.id);
+  if(sessionIds.length === 0){
+    membersList.innerHTML = `<p style="padding:14px 18px; font-size:13px; color:var(--gray);">Aucun membre pour l'instant.</p>`;
+    return;
+  }
+
+  const { data: participants } = await supabaseClient
+    .from('session_participants')
+    .select('user_id, guest_name, users(full_name)')
+    .in('session_id', sessionIds);
+
+  const uniqueNames = new Map();
+  (participants || []).forEach(p => {
+    const key = p.user_id || p.guest_name;
+    const name = (p.users && p.users.full_name) || p.guest_name || 'Participant';
+    if(key) uniqueNames.set(key, name);
+  });
+
+  if(uniqueNames.size === 0){
+    membersList.innerHTML = `<p style="padding:14px 18px; font-size:13px; color:var(--gray);">Aucun membre pour l'instant.</p>`;
+    return;
+  }
+  const palette = ['#6D4AFF','#F59E0B','#10B981','#3B82F6','#EC4899'];
+  membersList.innerHTML = Array.from(uniqueNames.values()).map((name, i) => `
+    <div class="trow">
+      <div class="av" style="background:${palette[i % palette.length]};">${name[0].toUpperCase()}</div>
+      <div class="main"><div class="t">${name}</div></div>
+    </div>`).join('');
 }
 
 async function createStudyProgram(){
@@ -3775,6 +3909,23 @@ function generateJoinCode(){
   return group(3) + '-' + group(4) + '-' + group(3);
 }
 
+async function loadProgramOptions(){
+  const select = document.getElementById('newSessionProgram');
+  select.innerHTML = '<option value="">Aucun</option>';
+  if(isDevMode || !currentChurch) return;
+
+  const { data: programs } = await supabaseClient.from('study_programs').select('id, title').eq('church_id', currentChurch.id);
+  (programs || []).forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.title;
+    select.appendChild(opt);
+  });
+}
+document.getElementById('newSessionProgram').addEventListener('change', function(){
+  document.getElementById('fieldProgramWeek').style.display = this.value ? 'block' : 'none';
+});
+
 async function createSession(){
   const title = document.getElementById('newSessionTitle').value.trim();
   if(!title){
@@ -3789,6 +3940,8 @@ async function createSession(){
   const accessCode = document.getElementById('newSessionCode').value.trim() || null;
   const isInstant = newSessionType === 'instant';
   const scheduledAt = isInstant ? null : document.getElementById('newSessionDate').value;
+  const programId = document.getElementById('newSessionProgram').value || null;
+  const weekNumber = document.getElementById('newSessionWeek').value ? parseInt(document.getElementById('newSessionWeek').value, 10) : null;
 
   if(!isInstant && !scheduledAt){
     toast('Choisissez une date et une heure');
@@ -3824,9 +3977,19 @@ async function createSession(){
     return;
   }
 
+  if(programId){
+    const { error: linkError } = await supabaseClient.from('program_sessions').insert({
+      program_id: programId, session_id: newSession.id, week_number: weekNumber
+    });
+    if(linkError) console.error('Erreur liaison au programme:', linkError);
+  }
+
   document.getElementById('newSessionTitle').value = '';
   document.getElementById('newSessionDate').value = '';
   document.getElementById('newSessionCode').value = '';
+  document.getElementById('newSessionProgram').value = '';
+  document.getElementById('newSessionWeek').value = '';
+  document.getElementById('fieldProgramWeek').style.display = 'none';
 
   if(isInstant){
     joinRealSession(newSession.id, newSession.title, true, newSession.join_code);
