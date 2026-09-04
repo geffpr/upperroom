@@ -830,39 +830,6 @@
       </div>
     </div>
 
-    <!-- ============ POPUP DIFFUSION EXTERNE ============ -->
-    <div class="join-info-overlay" id="streamOverlay">
-      <div class="join-info-card" style="max-width:460px;">
-        <button class="close-btn" onclick="document.getElementById('streamOverlay').classList.remove('show')">✕</button>
-        <h3>Diffuser vers d'autres plateformes</h3>
-        <p class="sub">Ajoutez une destination RTMP (YouTube, Facebook, TikTok…).</p>
-
-        <div id="streamDestList" style="margin-bottom:16px;"></div>
-
-        <div class="join-info-row">
-          <label>Plateforme</label>
-          <select id="streamPlatform" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:9px 12px; font-size:13.5px; background:var(--bg); font-family:inherit;">
-            <option value="youtube">YouTube</option>
-            <option value="facebook">Facebook</option>
-            <option value="tiktok">TikTok</option>
-            <option value="other">Autre</option>
-          </select>
-        </div>
-        <div class="join-info-row">
-          <label>URL RTMP</label>
-          <input type="text" id="streamRtmpUrl" placeholder="rtmp://a.rtmp.youtube.com/live2" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:9px 12px; font-size:13.5px;">
-        </div>
-        <div class="join-info-row">
-          <label>Clé de diffusion</label>
-          <input type="text" id="streamKey" placeholder="xxxx-xxxx-xxxx-xxxx" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:9px 12px; font-size:13.5px;">
-        </div>
-        <button class="btn btn-ghost" style="width:100%; justify-content:center; margin-bottom:14px;" onclick="addStreamDestination()">+ Ajouter cette destination</button>
-
-        <button class="btn btn-primary" id="streamToggleBtn" style="width:100%; justify-content:center;" onclick="toggleStreaming()">Démarrer la diffusion</button>
-        <p id="streamStatusText" style="text-align:center; font-size:12px; color:var(--gray); margin-top:8px;"></p>
-      </div>
-    </div>
-
     <div class="stage">
       <div class="video-grid" id="videoGrid">
         <div class="tile main-teacher" id="localTile">
@@ -1117,6 +1084,39 @@
     <button class="btn btn-primary" onclick="showPage('dashboard')">Retour au dashboard</button>
   </div>
 </section>
+
+<!-- ============ POPUP DIFFUSION EXTERNE (accessible depuis le dashboard ou la salle) ============ -->
+<div class="join-info-overlay" id="streamOverlay">
+  <div class="join-info-card" style="max-width:460px;">
+    <button class="close-btn" onclick="document.getElementById('streamOverlay').classList.remove('show')">✕</button>
+    <h3 id="streamModalTitle">Diffuser vers d'autres plateformes</h3>
+    <p class="sub">Ajoutez une destination RTMP (YouTube, Facebook, TikTok…).</p>
+
+    <div id="streamDestList" style="margin-bottom:16px;"></div>
+
+    <div class="join-info-row">
+      <label>Plateforme</label>
+      <select id="streamPlatform" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:9px 12px; font-size:13.5px; background:var(--bg); font-family:inherit;">
+        <option value="youtube">YouTube</option>
+        <option value="facebook">Facebook</option>
+        <option value="tiktok">TikTok</option>
+        <option value="other">Autre</option>
+      </select>
+    </div>
+    <div class="join-info-row">
+      <label>URL RTMP</label>
+      <input type="text" id="streamRtmpUrl" placeholder="rtmp://a.rtmp.youtube.com/live2" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:9px 12px; font-size:13.5px;">
+    </div>
+    <div class="join-info-row">
+      <label>Clé de diffusion</label>
+      <input type="text" id="streamKey" placeholder="xxxx-xxxx-xxxx-xxxx" style="width:100%; border:1px solid var(--gray-line); border-radius:var(--radius-sm); padding:9px 12px; font-size:13.5px;">
+    </div>
+    <button class="btn btn-ghost" style="width:100%; justify-content:center; margin-bottom:14px;" onclick="addStreamDestination()">+ Ajouter cette destination</button>
+
+    <button class="btn btn-primary" id="streamToggleBtn" style="width:100%; justify-content:center;" onclick="toggleStreaming()">Démarrer la diffusion</button>
+    <p id="streamStatusText" style="text-align:center; font-size:12px; color:var(--gray); margin-top:8px;"></p>
+  </div>
+</div>
 
 <div class="toast" id="toast"></div>
 
@@ -2132,15 +2132,16 @@ function updateInterpreterPip(){
 
 /* ---------- DIFFUSION VERS YOUTUBE / FACEBOOK / TIKTOK ---------- */
 let currentEgressId = null;
+let streamModalSessionId = null; // session ciblée par la popup (salle active OU étude choisie depuis le dashboard)
+let streamModalIsDashboard = false; // true = simple configuration à l'avance, pas de démarrage possible ici
 
 async function loadStreamDestinations(){
-  const roomName = sessionStorage.getItem('upperroom_room_name');
   const list = document.getElementById('streamDestList');
-  if(!UUID_REGEX.test(roomName || '')){
+  if(!UUID_REGEX.test(streamModalSessionId || '')){
     list.innerHTML = `<p style="font-size:12.5px; color:var(--gray);">Diffusion externe non disponible pour cette salle de démonstration.</p>`;
     return [];
   }
-  const { data, error } = await supabaseClient.from('stream_destinations').select('*').eq('session_id', roomName);
+  const { data, error } = await supabaseClient.from('stream_destinations').select('*').eq('session_id', streamModalSessionId);
   if(error){ list.innerHTML = `<p style="font-size:12.5px; color:var(--gray);">Erreur de chargement.</p>`; return []; }
 
   if(!data || data.length === 0){
@@ -2156,8 +2157,7 @@ async function loadStreamDestinations(){
 }
 
 async function addStreamDestination(){
-  const roomName = sessionStorage.getItem('upperroom_room_name');
-  if(!UUID_REGEX.test(roomName || '')){
+  if(!UUID_REGEX.test(streamModalSessionId || '')){
     toast('La diffusion externe nécessite une vraie session (pas la démo)');
     return;
   }
@@ -2171,7 +2171,7 @@ async function addStreamDestination(){
   }
 
   const { error } = await supabaseClient.from('stream_destinations').insert({
-    session_id: roomName, platform,
+    session_id: streamModalSessionId, platform,
     rtmp_url: rtmpUrl,
     stream_key_encrypted: streamKey // chiffrement à ajouter avant un vrai lancement — voir note de sécurité
   });
@@ -2189,13 +2189,55 @@ async function removeStreamDestination(id){
   loadStreamDestinations();
 }
 
-function showStreamModal(){
+/* Ouverte depuis la salle (aucun argument, cible la session en cours) ou depuis le dashboard (sessionId + titre fournis) */
+function showStreamModal(sessionId, sessionTitle){
+  streamModalIsDashboard = !!sessionId;
+  streamModalSessionId = sessionId || sessionStorage.getItem('upperroom_room_name');
+
+  document.getElementById('streamModalTitle').textContent = streamModalIsDashboard
+    ? 'Destinations de diffusion — ' + (sessionTitle || 'étude')
+    : 'Diffuser vers d\'autres plateformes';
+
+  const toggleBtn = document.getElementById('streamToggleBtn');
+  const statusText = document.getElementById('streamStatusText');
+  if(streamModalIsDashboard){
+    toggleBtn.style.display = 'none';
+    statusText.textContent = 'Ces destinations seront utilisées automatiquement au démarrage de l\'étude.';
+  } else {
+    toggleBtn.style.display = 'block';
+    toggleBtn.textContent = currentEgressId ? 'Arrêter la diffusion' : 'Démarrer la diffusion';
+    statusText.textContent = '';
+  }
+
   loadStreamDestinations();
   document.getElementById('streamOverlay').classList.add('show');
 }
 
+/* Démarre réellement l'envoi vers les plateformes — appelée manuellement, ou automatiquement au clic "Démarrer" d'une étude */
+async function startStreamingForSession(sessionId){
+  const destinations = await (async () => {
+    const { data } = await supabaseClient.from('stream_destinations').select('*').eq('session_id', sessionId);
+    return data || [];
+  })();
+  if(destinations.length === 0) return; // rien de configuré, rien à démarrer
+
+  const rtmpUrls = destinations.map(d => d.rtmp_url.replace(/\/$/, '') + '/' + d.stream_key_encrypted);
+  try{
+    const res = await fetch('/api/stream', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'start', room: sessionId, rtmpUrls })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error);
+    currentEgressId = data.egressId;
+    toast('Diffusion démarrée automatiquement vers ' + destinations.length + ' destination(s)');
+  }catch(e){
+    console.error('Erreur démarrage diffusion automatique:', e);
+    toast('Étude démarrée, mais la diffusion externe a échoué : ' + e.message);
+  }
+}
+
 async function toggleStreaming(){
-  const roomName = sessionStorage.getItem('upperroom_room_name');
   const btn = document.getElementById('streamToggleBtn');
 
   if(currentEgressId){
@@ -2232,7 +2274,7 @@ async function toggleStreaming(){
   try{
     const res = await fetch('/api/stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'start', room: roomName, rtmpUrls })
+      body: JSON.stringify({ action: 'start', room: streamModalSessionId, rtmpUrls })
     });
     const data = await res.json();
     if(!res.ok) throw new Error(data.error);
@@ -2764,6 +2806,9 @@ async function loadSessionsList(){
     if(isCreator && !isLive){
       actionButtons += `<button class="btn btn-ghost btn-sm" data-action="edit" data-id="${s.id}">✏️</button>`;
     }
+    if(isCreator && !isEnded){
+      actionButtons += `<button class="btn btn-ghost btn-sm" data-action="stream" data-id="${s.id}" data-title="${escapeHtml(s.title)}" title="Configurer la diffusion externe">📡</button>`;
+    }
 
     return `
       <div class="study-row">
@@ -2823,6 +2868,9 @@ async function loadSessionsList(){
         const { error } = await supabaseClient.from('sessions').update({ status: 'live' }).eq('id', id);
         if(error){ toast('Erreur lors du démarrage de la session'); return; }
         joinRealSession(id, title, true, code);
+        startStreamingForSession(id); // lance automatiquement les destinations préconfigurées, s'il y en a
+      } else if(btn.dataset.action === 'stream'){
+        showStreamModal(id, title);
       } else if(btn.dataset.action === 'copy-link'){
         const url = new URL(window.location.origin + window.location.pathname);
         url.searchParams.set('code', code || id);
