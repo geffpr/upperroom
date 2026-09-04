@@ -300,6 +300,32 @@
   @media (max-width:640px){
     .interpreter-pip{ width:90px; bottom:88px; }
   }
+
+  /* ---------- ON AIR & QUALITÉ DE CONNEXION ---------- */
+  .on-air-badge{
+    display:inline-flex; align-items:center; gap:5px; background:#B91C1C; color:#fff; font-size:11px; font-weight:700;
+    letter-spacing:.04em; padding:4px 10px; border-radius:999px; animation:onAirPulse 1.6s ease-in-out infinite;
+  }
+  @keyframes onAirPulse{
+    0%, 100%{ opacity:1; } 50%{ opacity:.55; }
+  }
+  .connection-badge{
+    display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--gray); font-weight:500;
+    background:var(--sand); padding:4px 10px; border-radius:999px;
+  }
+  .connection-dot{width:8px; height:8px; border-radius:50%; background:#9CA3AF; flex-shrink:0;}
+  .connection-dot.excellent{background:#22C55E;}
+  .connection-dot.good{background:#84CC16;}
+  .connection-dot.poor{background:#F59E0B;}
+  .connection-dot.lost{background:#EF4444;}
+  .tile .signal-dot{
+    position:absolute; top:8px; left:8px; width:9px; height:9px; border-radius:50%;
+    box-shadow:0 0 0 2px rgba(0,0,0,.4); background:#9CA3AF;
+  }
+  .tile .signal-dot.excellent{background:#22C55E;}
+  .tile .signal-dot.good{background:#84CC16;}
+  .tile .signal-dot.poor{background:#F59E0B;}
+  .tile .signal-dot.lost{background:#EF4444;}
   @media (max-width:640px){
     .scripture-overlay{ left:10px; right:10px; max-width:none; bottom:8px; }
   }
@@ -818,6 +844,11 @@
     <div class="room-head">
       <div class="room-title">
         <div class="live-pill"><span class="live-dot" style="background:#B91C1C"></span> EN DIRECT</div>
+        <div class="on-air-badge" id="onAirBadge" style="display:none;">🔴 ON AIR</div>
+        <div class="connection-badge" id="connectionBadge" title="Qualité de connexion">
+          <span class="connection-dot" id="connectionDot"></span>
+          <span id="connectionLabel">Connexion…</span>
+        </div>
         <div>
           <div class="t" id="roomTitleTag">Jean 3 — La nouvelle naissance</div>
           <div class="meta">Pasteur Roosevelt · Traduction FR → HT active · 6 participants</div>
@@ -1247,6 +1278,37 @@ function updateGridLayoutMode(){
       strip.remove();
     }
     grid.classList.remove('screen-sharing');
+  }
+}
+
+/* ---------- QUALITÉ DE CONNEXION (LiveKit) ---------- */
+const CONNECTION_LABELS = {
+  excellent: 'Forte', good: 'Correcte', poor: 'Faible', lost: 'Perdue', unknown: 'Connexion…'
+};
+
+function updateConnectionQualityDisplay(quality, participant){
+  if(!liveKitRoom) return;
+  const isLocal = participant.identity === liveKitRoom.localParticipant.identity;
+
+  // Badge principal : uniquement pour soi-même, c'est ce qui affecte réellement l'expérience de l'utilisateur
+  if(isLocal){
+    const dot = document.getElementById('connectionDot');
+    const label = document.getElementById('connectionLabel');
+    dot.className = 'connection-dot ' + quality;
+    label.textContent = CONNECTION_LABELS[quality] || quality;
+  }
+
+  // Petit point sur la vignette de chacun (soi-même et les autres)
+  const tileId = isLocal ? 'localTile' : 'tile-' + participant.identity;
+  const tile = document.getElementById(tileId);
+  if(tile){
+    let dot = tile.querySelector('.signal-dot');
+    if(!dot){
+      dot = document.createElement('div');
+      dot.className = 'signal-dot';
+      tile.appendChild(dot);
+    }
+    dot.className = 'signal-dot ' + quality;
   }
 }
 
@@ -1724,6 +1786,10 @@ async function initCamera(){
       updateActiveSpeakerLayout(speakers);
     });
 
+    liveKitRoom.on(RoomEvent.ConnectionQualityChanged, (quality, participant) => {
+      updateConnectionQualityDisplay(quality, participant);
+    });
+
     await liveKitRoom.connect(LIVEKIT_URL, tokenData.token);
     await liveKitRoom.localParticipant.setCameraEnabled(true);
     await liveKitRoom.localParticipant.setMicrophoneEnabled(true);
@@ -1765,6 +1831,7 @@ function leaveLiveKitRoom(){
   clearPlanEnforcementTimers();
   isSessionHost = false;
   currentEgressId = null;
+  setOnAirBadge(false);
   interpreterIdentity = null;
   if(liveKitRoom){
     liveKitRoom.disconnect();
@@ -2132,6 +2199,9 @@ function updateInterpreterPip(){
 
 /* ---------- DIFFUSION VERS YOUTUBE / FACEBOOK / TIKTOK ---------- */
 let currentEgressId = null;
+function setOnAirBadge(active){
+  document.getElementById('onAirBadge').style.display = active ? 'inline-flex' : 'none';
+}
 let streamModalSessionId = null; // session ciblée par la popup (salle active OU étude choisie depuis le dashboard)
 let streamModalIsDashboard = false; // true = simple configuration à l'avance, pas de démarrage possible ici
 
@@ -2230,6 +2300,7 @@ async function startStreamingForSession(sessionId){
     const data = await res.json();
     if(!res.ok) throw new Error(data.error);
     currentEgressId = data.egressId;
+    setOnAirBadge(true);
     toast('Diffusion démarrée automatiquement vers ' + destinations.length + ' destination(s)');
   }catch(e){
     console.error('Erreur démarrage diffusion automatique:', e);
@@ -2251,6 +2322,7 @@ async function toggleStreaming(){
       const data = await res.json();
       if(!res.ok) throw new Error(data.error);
       currentEgressId = null;
+      setOnAirBadge(false);
       btn.textContent = 'Démarrer la diffusion';
       document.getElementById('streamStatusText').textContent = 'Diffusion arrêtée.';
       toast('Diffusion arrêtée');
@@ -2279,6 +2351,7 @@ async function toggleStreaming(){
     const data = await res.json();
     if(!res.ok) throw new Error(data.error);
     currentEgressId = data.egressId;
+    setOnAirBadge(true);
     btn.textContent = 'Arrêter la diffusion';
     document.getElementById('streamStatusText').textContent = 'Diffusion active vers ' + destinations.length + ' destination(s).';
     toast('Diffusion démarrée');
